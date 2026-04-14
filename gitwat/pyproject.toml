@@ -8,6 +8,9 @@ license = { text = "MIT" }
 authors = [{ name = "holbizmetrics" }]
 dependencies = ["rapidfuzz>=3.0"]
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
 [project.scripts]
 gitwat = "gitwat:main"
 
