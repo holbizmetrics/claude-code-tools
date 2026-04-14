@@ -160,3 +160,151 @@ command = "git push -u origin HEAD"
 explanation = "Pushes the current branch to origin and sets it as the upstream for future pulls and pushes."
 safety = "history"
 requires = ["in-repo", "has-commits", "has-remote"]
+
+[[painpoint]]
+id = "push.force-with-lease"
+intents = [
+  "force push safely",
+  "push after rebase",
+  "push rewritten history",
+  "force push with safety net",
+]
+command = "git push --force-with-lease"
+explanation = "Force-pushes the current branch, but refuses if the remote has moved since your last fetch — protects teammates' work."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-upstream"]
+warning = "Still rewrites remote history. Safe on solo feature branches; disruptive on shared branches where others have pulled your old commits."
+
+[[painpoint]]
+id = "fetch.remote"
+intents = [
+  "update remote tracking refs",
+  "fetch from origin",
+  "refresh what the remote has",
+  "see whats new on origin without merging",
+]
+command = "git fetch"
+explanation = "Downloads new commits from origin and updates origin/* refs. Read-only: does not touch your working tree, branches, or index."
+safety = "readonly"
+requires = ["in-repo", "has-remote"]
+
+[[painpoint]]
+id = "log.incoming"
+intents = [
+  "what does origin have that i dont",
+  "incoming commits on main",
+  "whats new on origin main",
+  "commits on remote i havent pulled",
+]
+command = "git log HEAD..origin/main --oneline"
+explanation = "Shows commits on origin/main that are not on your current branch. Run `git fetch` first to make the result current."
+safety = "readonly"
+requires = ["in-repo", "has-commits", "has-remote"]
+
+[[painpoint]]
+id = "diff.branches"
+intents = [
+  "compare my branch to main",
+  "what does my branch change vs main",
+  "diff against main",
+  "branch differences from main",
+]
+command = "git diff main...HEAD"
+explanation = "Shows everything your branch changes relative to main, using the fork point as the base (three dots)."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "rebase.reword-n-back"
+intents = [
+  "change an old commit message",
+  "reword a commit several back",
+  "fix commit message not the last one",
+  "edit past commit message",
+]
+command = "git rebase -i HEAD~<N>"
+explanation = "Opens interactive rebase on the last N commits. Change `pick` to `reword` on the target line, save, then edit the message in the second editor that opens."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+warning = "Replace <N> with a number at least one greater than how far back the commit is. Force-push with --force-with-lease afterward. Safe only on branches others have not pulled."
+
+[[painpoint]]
+id = "rebase.onto-updated-main"
+intents = [
+  "rebase my branch onto origin main",
+  "update feature branch against main",
+  "catch up with main and reword",
+  "rebase interactive onto current main",
+]
+command = "git rebase -i origin/main"
+explanation = "Replays your branch commits on top of the current origin/main, with an interactive editor for rewording/squashing. Run `git fetch` first so origin/main is current."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-remote"]
+warning = "May introduce conflicts if new main commits touched the same lines. Force-push afterward. Moves your branch forward onto newer main."
+
+[[painpoint]]
+id = "rebase.fork-point"
+intents = [
+  "reword commits without moving onto newer main",
+  "interactive rebase in place",
+  "rebase from fork point only",
+  "pure message fix no main catch up",
+]
+command = "git rebase -i $(git merge-base HEAD origin/main)"
+explanation = "Opens interactive rebase starting at the exact point your branch diverged from origin/main. Lets you reword/squash your commits without pulling in newer main commits — pure in-place history surgery."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-remote"]
+warning = "Force-push afterward. Use this when you only want to fix messages, not catch up with main."
+
+[[painpoint]]
+id = "rebase.am-i-stuck"
+intents = [
+  "am i in a rebase",
+  "is there a rebase in progress",
+  "am i stuck in a rebase",
+  "did a rebase pause",
+]
+command = "git status"
+explanation = "If a rebase is paused (conflict, edit, or reword), git status prints `You are currently rebasing...` and tells you the next step. If not, it shows normal branch status."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "rebase.abort"
+intents = [
+  "cancel a rebase",
+  "abort rebase",
+  "get out of a stuck rebase",
+  "undo rebase in progress",
+]
+command = "git rebase --abort"
+explanation = "Cancels an in-progress rebase and restores the branch to exactly where it was before the rebase started. Safe — nothing committed is lost."
+safety = "worktree"
+requires = ["in-repo"]
+warning = "Only affects an in-progress rebase. Does nothing if no rebase is running. Uncommitted edits made while the rebase was paused may be lost."
+
+[[painpoint]]
+id = "rebase.continue"
+intents = [
+  "continue rebase after conflict",
+  "resume rebase",
+  "keep rebasing after fix",
+]
+command = "git rebase --continue"
+explanation = "Resumes a paused rebase after you've resolved conflicts (and `git add`ed the fixed files) or finished an `edit`/`reword` step."
+safety = "history"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "stash.before-pull"
+intents = [
+  "pull failed because of local changes",
+  "pull refused dirty tree",
+  "safely pull over uncommitted work",
+  "pull while i have changes",
+]
+command = "git stash && git pull && git stash pop"
+explanation = "Stashes local changes, pulls from the remote, then reapplies the stash. Use when `git pull` refuses with 'local changes would be overwritten'."
+safety = "worktree"
+requires = ["in-repo", "dirty", "has-upstream"]
+warning = "If pull or the final `stash pop` hits conflicts, resolve them manually. The stash entry remains until you successfully pop it."
