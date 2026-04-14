@@ -1,0 +1,162 @@
+# gitwat pain-point database. Hand-edited. One source of truth.
+#
+# Fields:
+#   id          stable identifier, dot-separated (category.name)
+#   intents     3-5 canonical phrasings; fuzzy matcher handles variation
+#   command     the exact git command to teach
+#   explanation one sentence, what the command does
+#   safety      readonly | worktree | history | destructive
+#   requires    list of repo-state checks that must pass for this to appear
+#   warning     optional, shown before execution
+
+[[painpoint]]
+id = "remotes.list"
+intents = [
+  "show remotes",
+  "what repo is this connected to",
+  "which remote am i using",
+  "where does this push to",
+]
+command = "git remote -v"
+explanation = "Lists all configured remotes with their fetch and push URLs."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "status.current"
+intents = [
+  "what changed",
+  "whats modified",
+  "status",
+  "whats staged",
+  "what did i change",
+]
+command = "git status"
+explanation = "Shows current branch, staged and unstaged changes, and untracked files."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "log.recent"
+intents = [
+  "recent commits",
+  "what happened lately",
+  "show history",
+  "last commits",
+]
+command = "git log --oneline --graph --decorate -20"
+explanation = "Shows the last 20 commits as a compact graph with branch and tag decorations."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "branch.current"
+intents = [
+  "what branch am i on",
+  "current branch",
+  "which branch",
+]
+command = "git branch --show-current"
+explanation = "Prints the name of the current branch (empty if detached HEAD)."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "diff.unstaged"
+intents = [
+  "what did i change in files",
+  "show my unstaged changes",
+  "diff working tree",
+]
+command = "git diff"
+explanation = "Shows unstaged changes in the working tree, line by line."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "diff.staged"
+intents = [
+  "what am i about to commit",
+  "show staged diff",
+  "whats in the index",
+]
+command = "git diff --staged"
+explanation = "Shows changes staged for the next commit, line by line."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "undo.last-commit-soft"
+intents = [
+  "undo my last commit but keep changes",
+  "uncommit",
+  "i messed up my commit message",
+  "take back last commit",
+]
+command = "git reset --soft HEAD~1"
+explanation = "Removes the last commit but keeps all its changes staged for a new commit."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+warning = "Safe only if you have not pushed this commit. If you pushed, prefer `git commit --amend` or a new commit."
+
+[[painpoint]]
+id = "undo.discard-file"
+intents = [
+  "discard changes to a file",
+  "revert file to last commit",
+  "undo edits in one file",
+]
+command = "git restore <file>"
+explanation = "Discards unstaged changes to a file, restoring it to the last committed version."
+safety = "worktree"
+requires = ["in-repo", "has-commits", "dirty"]
+warning = "The discarded changes cannot be recovered. Replace <file> with the actual path."
+
+[[painpoint]]
+id = "stash.save"
+intents = [
+  "save my changes for later",
+  "put my work aside",
+  "stash",
+]
+command = "git stash push -m \"wip\""
+explanation = "Saves current uncommitted changes to the stash and cleans the working tree."
+safety = "worktree"
+requires = ["in-repo", "dirty"]
+
+[[painpoint]]
+id = "stash.pop"
+intents = [
+  "bring back my stashed changes",
+  "restore stash",
+  "unstash",
+]
+command = "git stash pop"
+explanation = "Reapplies the most recent stash entry and removes it from the stash list."
+safety = "worktree"
+requires = ["in-repo", "has-stash"]
+warning = "If the stash does not apply cleanly you will get merge conflicts to resolve."
+
+[[painpoint]]
+id = "push.current"
+intents = [
+  "send this branch to origin",
+  "push my branch",
+  "upload commits",
+]
+command = "git push"
+explanation = "Pushes the current branch to its upstream remote."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-upstream"]
+
+[[painpoint]]
+id = "push.set-upstream"
+intents = [
+  "push new branch first time",
+  "set upstream",
+  "push and track",
+]
+command = "git push -u origin HEAD"
+explanation = "Pushes the current branch to origin and sets it as the upstream for future pulls and pushes."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-remote"]
