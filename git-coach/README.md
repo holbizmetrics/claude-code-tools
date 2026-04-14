@@ -1,6 +1,6 @@
-# gitwat
+# git-coach
 
-**git, wat?** — A deterministic git coach. Tells you the exact command for what you're trying to do, always shows it before offering to run it, and filters suggestions by real-time repo state. No LLM, no network, no ambiguity.
+A deterministic git coach. Tells you the exact command for what you're trying to do, always shows it before offering to run it, and filters suggestions by real-time repo state. No LLM, no network, no ambiguity.
 
 ## What it is
 
@@ -22,17 +22,17 @@ Requires Python 3.11+ (for `tomllib`) and `rapidfuzz`.
 ## Usage
 
 ```bash
-gitwat show remotes
-gitwat what branch am i on
-gitwat "undo my last commit"
-gitwat --run what changed
+git-coach show remotes
+git-coach what branch am i on
+git-coach "undo my last commit"
+git-coach --run what changed
 ```
 
-Pass `--run` to offer execution after displaying the command. Without it, `gitwat` only shows the command and explanation.
+Pass `--run` to offer execution after displaying the command. Without it, `git-coach` only shows the command and explanation.
 
 ## Adding pain points
 
-Edit `src/gitwat/painpoints.toml`. Each entry:
+Edit `src/git_coach/painpoints.toml`. Each entry:
 
 ```toml
 [[painpoint]]

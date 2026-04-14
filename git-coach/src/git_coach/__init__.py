@@ -1,4 +1,4 @@
-"""gitwat — git, wat? A deterministic git coach.
+"""git-coach — a deterministic git coach.
 
 Maps plain-language intents to the exact git command, always shows the
 manual command before offering to run it, and filters suggestions by
@@ -34,7 +34,7 @@ class Painpoint:
 
 def load_painpoints(path: Path | None = None) -> list[Painpoint]:
     if path is None:
-        data = tomllib.loads((files("gitwat") / "painpoints.toml").read_text())
+        data = tomllib.loads((files("git_coach") / "painpoints.toml").read_text())
     else:
         data = tomllib.loads(path.read_text())
     out: list[Painpoint] = []
@@ -158,13 +158,13 @@ def run(p: Painpoint) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="gitwat",
-        description="git, wat? — a deterministic git coach.",
+        prog="git-coach",
+        description="A deterministic git coach.",
     )
     parser.add_argument("query", nargs="+", help="what you want git to do, in plain words")
     parser.add_argument("--run", action="store_true", help="offer to run the chosen command")
     parser.add_argument("--file", type=Path, default=None, help="path to a custom painpoints.toml")
-    parser.add_argument("--version", action="version", version=f"gitwat {__version__}")
+    parser.add_argument("--version", action="version", version=f"git-coach {__version__}")
     args = parser.parse_args(argv)
 
     query = " ".join(args.query)

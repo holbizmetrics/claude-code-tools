@@ -1,7 +1,7 @@
 [project]
-name = "gitwat"
+name = "git-coach"
 version = "0.1.0"
-description = "git, wat? A deterministic git coach that shows the command before running it."
+description = "A deterministic git coach that maps plain-language intents to git commands and shows the command before running it."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -12,11 +12,11 @@ dependencies = ["rapidfuzz>=3.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-gitwat = "gitwat:main"
+git-coach = "git_coach:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gitwat"]
+packages = ["src/git_coach"]

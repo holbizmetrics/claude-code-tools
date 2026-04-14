@@ -1,10 +1,10 @@
-"""Tests for gitwat. Three surfaces: load, rank, state."""
+"""Tests for git-coach. Three surfaces: load, rank, state."""
 from __future__ import annotations
 
 import pytest
 
-import gitwat
-from gitwat import Painpoint, RepoState, load_painpoints, rank, SAFETY_LABELS
+import git_coach
+from git_coach import Painpoint, RepoState, load_painpoints, rank, SAFETY_LABELS
 
 
 # --- load -----------------------------------------------------------------
@@ -97,7 +97,7 @@ def test_rank_limit_respected():
 # --- state ----------------------------------------------------------------
 
 def test_state_satisfies_passes_when_all_checks_pass(monkeypatch):
-    monkeypatch.setattr(gitwat, "_git", lambda *a: (0, "value"))
+    monkeypatch.setattr(git_coach, "_git", lambda *a: (0, "value"))
     state = RepoState()
     assert state.satisfies(("in-repo", "has-commits")) is True
 
@@ -107,7 +107,7 @@ def test_state_satisfies_fails_when_any_check_fails(monkeypatch):
         ("rev-parse", "--is-inside-work-tree"): (0, "true"),
         ("rev-parse", "HEAD"): (128, ""),  # no commits
     }
-    monkeypatch.setattr(gitwat, "_git", lambda *a: responses.get(a, (1, "")))
+    monkeypatch.setattr(git_coach, "_git", lambda *a: responses.get(a, (1, "")))
     state = RepoState()
     assert state.satisfies(("in-repo", "has-commits")) is False
 
@@ -119,7 +119,7 @@ def test_state_caches_checks(monkeypatch):
         calls.append(a)
         return (0, "ok")
 
-    monkeypatch.setattr(gitwat, "_git", fake)
+    monkeypatch.setattr(git_coach, "_git", fake)
     state = RepoState()
     state.check("in-repo")
     state.check("in-repo")
@@ -128,13 +128,13 @@ def test_state_caches_checks(monkeypatch):
 
 
 def test_state_unknown_check_raises(monkeypatch):
-    monkeypatch.setattr(gitwat, "_git", lambda *a: (0, ""))
+    monkeypatch.setattr(git_coach, "_git", lambda *a: (0, ""))
     state = RepoState()
     with pytest.raises(ValueError, match="unknown state check"):
         state.check("not-a-real-check")
 
 
 def test_state_empty_requires_always_satisfies(monkeypatch):
-    monkeypatch.setattr(gitwat, "_git", lambda *a: (1, ""))  # everything fails
+    monkeypatch.setattr(git_coach, "_git", lambda *a: (1, ""))  # everything fails
     state = RepoState()
     assert state.satisfies(()) is True

@@ -6,7 +6,7 @@ Companion utilities for people who use [Claude Code](https://claude.com/claude-c
 
 | Tool | What it does | Status |
 |---|---|---|
-| [`gitwat/`](./gitwat) | git, wat? — a deterministic git coach that maps plain-language intents to git commands, always shows the command before running it, and filters suggestions by repo state. No LLM. | v0.1.0 |
+| [`git-coach/`](./git-coach) | A deterministic git coach that maps plain-language intents to git commands, always shows the command before running it, and filters suggestions by repo state. No LLM. | v0.1.0 |
 
 ## Design principles
 
@@ -20,14 +20,14 @@ Companion utilities for people who use [Claude Code](https://claude.com/claude-c
 Each tool is independently installable:
 
 ```bash
-pip install git+https://github.com/holbizmetrics/claude-code-tools.git#subdirectory=gitwat
+pip install git+https://github.com/holbizmetrics/claude-code-tools.git#subdirectory=git-coach
 ```
 
 Or clone and install editable for development:
 
 ```bash
 git clone https://github.com/holbizmetrics/claude-code-tools.git
-cd claude-code-tools/gitwat
+cd claude-code-tools/git-coach
 pip install -e .
 ```
 
