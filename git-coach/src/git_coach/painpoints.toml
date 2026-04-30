@@ -308,3 +308,96 @@ explanation = "Stashes local changes, pulls from the remote, then reapplies the 
 safety = "worktree"
 requires = ["in-repo", "dirty", "has-upstream"]
 warning = "If pull or the final `stash pop` hits conflicts, resolve them manually. The stash entry remains until you successfully pop it."
+
+[[painpoint]]
+id = "pickaxe.in-file"
+intents = [
+  "when did this string appear in this file",
+  "find the commit that added or removed text in a file",
+  "search a file's history for a string",
+  "trace text changes in one specific file",
+]
+command = "git log -S \"<text>\" -- <path>"
+explanation = "Lists commits that changed the count of <text> in <path>. The pickaxe (-S) finds where a literal string was introduced or removed in that one file."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+warning = "Quote multi-word strings literally: -S \"a b\". For regex patterns use -G instead of -S."
+
+[[painpoint]]
+id = "pickaxe.with-diffs"
+intents = [
+  "show diffs for commits that touched a string",
+  "pickaxe with patches",
+  "see what changed around a string in a file",
+]
+command = "git log -p -S \"<text>\" -- <path>"
+explanation = "Same as the file-scoped pickaxe, plus each matching commit's diff. Use when you need full context, not just SHAs."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "show.file-before-commit"
+intents = [
+  "what did this file look like before this commit",
+  "previous version of a file before a commit",
+  "show the file at the parent of a commit",
+  "version of file just before X changed it",
+]
+command = "git show <sha>^:<path>"
+explanation = "Prints <path> as it existed at the parent of <sha> — exactly what the file looked like just before that commit modified it. The trailing ^ means parent; ~N means N commits earlier."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+warning = "On zsh and Windows cmd.exe, ^ may be eaten by the shell. If output looks wrong, quote the whole revspec: git show \"<sha>^:<path>\"."
+
+[[painpoint]]
+id = "show.file-in-commit"
+intents = [
+  "what did this file change in this commit",
+  "single-file diff inside a commit",
+  "diff one file from a multi-file commit",
+]
+command = "git show <sha> -- <path>"
+explanation = "Shows only the changes to <path> within commit <sha>, ignoring other files the commit touched."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "pull.ff-only"
+intents = [
+  "pull without auto merging",
+  "safe pull that refuses to merge",
+  "pull only if fast forward",
+  "pull or fail if branches diverged",
+]
+command = "git pull --ff-only"
+explanation = "Updates your branch only if it can fast-forward. Refuses if the branches have diverged, forcing you to investigate before letting git auto-merge."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-upstream"]
+warning = "If --ff-only refuses, your branch has diverged from upstream. Run 'git status' and decide between rebase or merge before retrying without --ff-only."
+
+[[painpoint]]
+id = "log.first-on-file"
+intents = [
+  "when was this file first added",
+  "earliest commits touching a file",
+  "history of a file in chronological order",
+  "show the oldest commits for a file",
+]
+command = "git log --reverse --pretty=format:\"%h %ai %s\" -- <path>"
+explanation = "Lists every commit touching <path>, oldest-first, with short SHA, ISO timestamp, and message. Pipe to '| head -5' for just the earliest few."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "log.behind-upstream"
+intents = [
+  "what commits am i behind on",
+  "missing commits from upstream",
+  "what would i pull",
+  "show unpulled commits from upstream",
+]
+command = "git log HEAD..@{u} --oneline"
+explanation = "Lists commits on your upstream branch that are not on yours — i.e. commits you would receive by pulling. @{u} is the upstream of the current branch."
+safety = "readonly"
+requires = ["in-repo", "has-commits", "has-upstream"]
+warning = "Run 'git fetch' first so @{u} reflects current remote state. On zsh, @{u} may need quoting due to history-glob expansion."
