@@ -401,3 +401,172 @@ explanation = "Lists commits on your upstream branch that are not on yours — i
 safety = "readonly"
 requires = ["in-repo", "has-commits", "has-upstream"]
 warning = "Run 'git fetch' first so @{u} reflects current remote state. On zsh, @{u} may need quoting due to history-glob expansion."
+
+[[painpoint]]
+id = "commit.amend-message"
+intents = [
+  "fix the last commit message",
+  "reword my latest commit",
+  "change the message of my last commit",
+  "correct a wrong commit message",
+  "i used the wrong ticket number in my commit",
+]
+command = "git commit --amend -m \"<new message>\""
+explanation = "Replaces the most recent commit's message while keeping its content. Only touches the tip commit; for older commits use an interactive rebase reword."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+warning = "Unstage first (git reset) or any staged changes get folded into the commit — amend commits the index, not just the message. If the commit was already pushed you must force-push (--force-with-lease) or ship it under a new branch name."
+
+[[painpoint]]
+id = "undo.unstage-all"
+intents = [
+  "unstage everything",
+  "unstage all files",
+  "clear the staging area",
+  "i staged the wrong things",
+  "take everything out of the index",
+]
+command = "git reset"
+explanation = "Unstages all staged changes, leaving file contents untouched in the working tree. The inverse of git add. Nothing is lost."
+safety = "worktree"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "branch.rename-local"
+intents = [
+  "rename my branch",
+  "rename the current branch",
+  "change the branch name",
+  "give this branch a new name",
+]
+command = "git branch -m <new-name>"
+explanation = "Renames the current branch locally. Does not touch the remote — the old remote branch and its upstream tracking remain until you push the new name and delete the old."
+safety = "history"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "branch.rename-pushed"
+intents = [
+  "rename a branch i already pushed",
+  "rename a branch on the remote",
+  "fix the name of a pushed branch",
+  "move a branch to a new name on origin",
+]
+command = "git branch -m <new-name> && git push -u origin <new-name> && git push origin --delete <old-name>"
+explanation = "Renames the branch locally, publishes the new name (setting upstream), then removes the old branch from the remote — there is no true server-side rename, it's push-new plus delete-old."
+safety = "history"
+requires = ["in-repo", "has-remote"]
+warning = "Deleting the old branch closes any open MR/PR attached to it — reopen it on the new branch, or rename via the GitHub/GitLab web UI to preserve it. The renamed local branch keeps tracking the OLD upstream until the -u push repoints it."
+
+[[painpoint]]
+id = "branch.delete-remote"
+intents = [
+  "delete a branch on the remote",
+  "remove a remote branch",
+  "delete a branch from origin",
+  "clean up a pushed branch",
+]
+command = "git push origin --delete <branch>"
+explanation = "Deletes <branch> from the remote. Your local branch, if any, is untouched."
+safety = "destructive"
+requires = ["in-repo", "has-remote"]
+warning = "Closes any open MR/PR whose source is this branch. Recoverable only by re-pushing the commits, which must still exist locally or in a backup ref."
+
+[[painpoint]]
+id = "safety.backup-before-rewrite"
+intents = [
+  "back up before rewriting history",
+  "make a safety branch before a rebase",
+  "bookmark the current commit before amend",
+  "save a recovery point before force push",
+]
+command = "git branch backup/<name> <sha>"
+explanation = "Creates a lightweight branch pointing at <sha> (e.g. the current tip) so the original commit stays reachable after an amend, rebase, or force-push. Delete it later with git branch -D backup/<name>."
+safety = "worktree"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "pull.rebase"
+intents = [
+  "pull when my branch diverged",
+  "remote is ahead update without a merge commit",
+  "rebase pull",
+  "push rejected because remote is ahead",
+  "replay my commits on top of origin",
+]
+command = "git pull --rebase"
+explanation = "Fetches the remote and replays your local commits on top of it — linear history, no merge commit. Use when a push was rejected because the remote has commits you don't."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-upstream"]
+warning = "If your commits and the incoming ones touched the same lines you'll resolve conflicts, then `git rebase --continue`. Only your unpushed commits are replayed."
+
+[[painpoint]]
+id = "reflog.recover"
+intents = [
+  "recover a lost commit",
+  "undo a bad reset or rebase",
+  "get back commits after a bad amend",
+  "i lost work after reset --hard",
+  "find where HEAD used to be",
+]
+command = "git reset --hard HEAD@{N}"
+explanation = "Restores your branch to an earlier HEAD position from the reflog — run `git reflog` first to find the right HEAD@{N} (or SHA). Recovers commits lost to a bad reset, rebase, or amend."
+safety = "destructive"
+requires = ["in-repo", "has-commits"]
+warning = "reset --hard discards uncommitted changes and any commits after the target — confirm HEAD@{N} is the state you want. The reflog is local-only and entries expire (about 90 days)."
+
+[[painpoint]]
+id = "cherry-pick.one"
+intents = [
+  "copy one commit onto this branch",
+  "apply a single commit from another branch",
+  "cherry pick a commit",
+  "bring one commit over without merging the branch",
+]
+command = "git cherry-pick <sha>"
+explanation = "Applies the changes from a single commit onto the current branch as a new commit, without merging the rest of its branch."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+warning = "If it doesn't apply cleanly, resolve conflicts then `git cherry-pick --continue`. Cherry-picking duplicates the change — avoid it if you'll also merge the source branch later."
+
+[[painpoint]]
+id = "checkout.detached-recover"
+intents = [
+  "get back to a branch from detached HEAD",
+  "im in detached head state",
+  "reattach to a branch",
+  "leave detached HEAD",
+]
+command = "git switch <branch>"
+explanation = "Reattaches you to a branch after a detached HEAD (e.g. from `git checkout <sha>`). `git switch -` returns to the branch you were just on."
+safety = "worktree"
+requires = ["in-repo", "has-commits"]
+warning = "If you made commits while detached, save them first with `git branch <name>` — otherwise they become unreachable once you switch away."
+
+[[painpoint]]
+id = "log.follow-file"
+intents = [
+  "history of a file across renames",
+  "track a file through its renames",
+  "full history of a renamed file",
+  "log a file including its old names",
+]
+command = "git log --follow -- <path>"
+explanation = "Shows a file's history continuing past renames, so you see changes from before it was moved or renamed. Takes exactly one pathspec."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+warning = "Exactly one path — `--follow` errors with 'requires exactly one pathspec' if you pass zero or several."
+
+[[painpoint]]
+id = "reflog.find-deleted"
+intents = [
+  "find the commit that deleted a file",
+  "when was this file deleted",
+  "which commit removed this file",
+  "recover a deleted file from history",
+]
+command = "git log --all --reflog --diff-filter=D -- <path>"
+explanation = "Finds the commit that deleted <path>, searching all branches and the reflog so even orphaned or unreachable commits show up."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+warning = "Once you have the deleting commit's SHA, restore the file with: git checkout <sha>^ -- <path> (the ^ means the parent, where the file still existed)."
