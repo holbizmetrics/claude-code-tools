@@ -570,3 +570,29 @@ explanation = "Finds the commit that deleted <path>, searching all branches and 
 safety = "readonly"
 requires = ["in-repo", "has-commits"]
 warning = "Once you have the deleting commit's SHA, restore the file with: git checkout <sha>^ -- <path> (the ^ means the parent, where the file still existed)."
+
+[[painpoint]]
+id = "identity.who-am-i"
+intents = [
+  "who am i committing as",
+  "what name and email will my commits use",
+  "check my git identity",
+  "which user will git stamp on my commits",
+]
+command = "git config user.name && git config user.email"
+explanation = "Prints the name and email git will stamp on commits in this repo. Whoever — or whatever — runs `git commit` here commits as this identity; git records the configured user, never who actually ran the command."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "identity.commit-author"
+intents = [
+  "who is this commit attributed to",
+  "who authored this commit",
+  "what identity made this commit",
+  "did i or something else make this commit",
+]
+command = "git log -1 --format=\"Author: %an <%ae> | Committer: %cn <%ce>\""
+explanation = "Shows the author and committer recorded on the tip commit. If a script or agent committed on your machine it still shows YOUR configured identity — attribution is taken from machine config at commit time, with no record of the real operator unless a Co-Authored-By trailer was added."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]

@@ -48,3 +48,49 @@ git push origin --delete task/XSYS-1574-PTT-Support-VPR-with-single-Activity
 - If an MR was open on the old branch, reopen it on the new one — or rename via the GitHub/GitLab **web UI**, which preserves the MR instead of closing it.
 
 **Related pain-points:** `safety.backup-before-rewrite` · `undo.unstage-all` · `commit.amend-message` · `branch.rename-local` · `branch.rename-pushed` · `branch.delete-remote` · `push.force-with-lease`
+
+---
+
+## An agent (or script) committed under your identity
+
+You let an AI agent, a script, or someone at your keyboard run git on your machine, and it ran `git commit`. Git stamped that commit with **your** configured `user.name` / `user.email` — as **both author and committer** — with nothing marking that something other than you produced it. You didn't push, and you may not even realize a commit happened: the only outward signal is your IDE lighting up **"Sync Changes"** (your branch is now *ahead of origin by 1*).
+
+### The traps
+
+- **Attribution is the machine's config, not the operator.** `git commit` records whatever `user.name`/`user.email` the repo resolves to — *never* who actually ran the command. An agent commits *as you*, indistinguishably.
+- **No `Co-Authored-By` unless someone added it.** By default there's no trailer flagging agent or co-author involvement, so the one convention that *would* mark it is simply absent.
+- **"Local-only" is still your commit.** Identity is stamped at *commit* time, not push time — an unpushed commit already carries your name inside the object.
+- **You may never see it happen.** No prompt, no banner. The symptom is `git status` showing `[ahead 1]`, or the IDE's "Sync Changes" button.
+
+### The fix (notice → verify → undo)
+
+```bash
+# 1. Unexpected local commits? "[ahead N]" means N unpushed commits.
+git status -sb
+
+# 2. Who is the tip commit attributed to?
+git log -1 --format="Author: %an <%ae> | Committer: %cn <%ce>"
+
+# 3. Not yours / not wanted? Undo it but KEEP the changes staged.
+#    Safe precisely because it was never pushed.
+git reset --soft HEAD~1
+```
+
+### Why it works
+
+- **`git status -sb`** surfaces the one externally-visible symptom — an unpushed commit shows as `## branch...origin/branch [ahead 1]`, which is exactly what an IDE renders as a "Sync Changes" prompt.
+- **`reset --soft HEAD~1`** removes the commit object but leaves every change staged — the precise pre-commit state, no data loss. The undone commit lingers only in the *local* reflog (expires on its own, ~90 days) and was never on the remote.
+- **Nothing distinguishes the commit as non-yours** — which is the whole point. If you *want* agent commits to be traceable, you have to arrange it deliberately.
+
+### Make it honest (prevention)
+
+- **Mark agent work with a trailer** — end the message with a blank line then `Co-Authored-By: Some Agent <agent@example.com>`. GitHub/GitLab render it as a co-author.
+- **Or give the agent its own identity per-commit**, without touching your repo config: `git -c user.name="Agent" -c user.email="agent@example.com" commit ...`.
+- **Treat even a local commit as an authorize-first, attributable action** when something other than you is driving git. "Local and reversible" does not make it un-attributed — it's already stamped with your name.
+
+### Remember
+
+- A commit is signed by the *keyboard's* git config, not by who pressed enter. On a shared or agent-driven machine, that means **it's you** unless you arranged otherwise.
+- Verify with `git log -1 --format=...` before pushing anything you didn't personally type out.
+
+**Related pain-points:** `status.current` · `identity.who-am-i` · `identity.commit-author` · `undo.last-commit-soft`
