@@ -596,3 +596,73 @@ command = "git log -1 --format=\"Author: %an <%ae> | Committer: %cn <%ce>\""
 explanation = "Shows the author and committer recorded on the tip commit. If a script or agent committed on your machine it still shows YOUR configured identity — attribution is taken from machine config at commit time, with no record of the real operator unless a Co-Authored-By trailer was added."
 safety = "readonly"
 requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "pull.rebase-autostash"
+intents = [
+  "pull rebase but i have uncommitted changes",
+  "pull-rebase over a dirty working tree",
+  "rebase pull without stashing first",
+  "update from remote while i have local edits",
+]
+command = "git pull --rebase --autostash"
+explanation = "Auto-stashes your uncommitted changes, fetches and replays your commits on top of the remote, then re-applies the stash — a one-shot 'pull-rebase over a dirty tree' with no manual stash/pop."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-upstream"]
+warning = "If the rebase or the stash re-apply conflicts, resolve and `git rebase --continue`. Committing important work first resolves cleaner than a stash pop."
+
+[[painpoint]]
+id = "fetch.no-credential-hang"
+intents = [
+  "git fetch hangs forever",
+  "git push freezes with no prompt",
+  "git stuck waiting for a password in a script or agent",
+  "make git fail fast instead of blocking on credentials",
+]
+command = "GIT_TERMINAL_PROMPT=0 git fetch"
+explanation = "Disables git's credential prompt so a missing/expired credential makes the command fail fast instead of hanging forever waiting for input a non-interactive shell can never give."
+safety = "readonly"
+requires = ["in-repo", "has-remote"]
+warning = "Use the same `GIT_TERMINAL_PROMPT=0` prefix on push/pull. If it now errors instead of hanging, fix the credential (credential manager or a PAT) — the hang was git silently waiting for one."
+
+[[painpoint]]
+id = "push.snapshot-branch"
+intents = [
+  "save my local work to a branch without rebasing",
+  "main diverged i just want my commits on the remote",
+  "preserve diverged work before reconciling later",
+  "park my commits on a side branch to be safe",
+]
+command = "git push origin HEAD:<snapshot-branch>"
+explanation = "Pushes your current commits to a NEW remote branch (e.g. laptop-snapshot-2026-05-23) without touching main — your work is safely on the remote even though your branch diverged, and you reconcile into main later with full context."
+safety = "history"
+requires = ["in-repo", "has-commits", "has-remote"]
+warning = "This does NOT update main — it parks work on a side branch. Use a dated, descriptive <snapshot-branch> name. Reach for this instead of forcing a risky rebase when a branch is badly behind."
+
+[[painpoint]]
+id = "sync.commit-then-pull-then-push"
+intents = [
+  "safely sync a repo that has uncommitted changes",
+  "commit and push but the remote already moved",
+  "right order to commit pull and push",
+  "fully sync this repo before switching machines",
+]
+command = "git add -A && git commit -m \"<msg>\" && git pull --rebase --autostash && git push"
+explanation = "The safe order when a repo has BOTH local changes and a moved remote: commit first (work becomes a safe commit), then rebase-pull (clean conflict resolution, not a messy stash pop), then push. Commit-before-pull is the key."
+safety = "history"
+requires = ["in-repo", "has-remote"]
+warning = "Review the diff before `add -A` so you don't commit junk or secrets. On rebase conflict: resolve, `git rebase --continue`, then push. Replace <msg> with a real message."
+
+[[painpoint]]
+id = "multi.audit-all-repos"
+intents = [
+  "status of all my repos at once",
+  "which repos have uncommitted work",
+  "audit every repo before switching machines",
+  "find repos with unpushed or uncommitted changes",
+]
+command = '''for d in */; do d="${d%/}"; [ -d "$d/.git" ] || continue; printf '%-30s %s\n' "$d" "$(git -C "$d" status -sb | head -1)"; git -C "$d" status --porcelain | head -3; done'''
+explanation = "Loops over every git repo in the current folder and prints each one's branch + ahead/behind and any uncommitted files — a fast 'state of all my repos' sweep before a device switch. No fetch, so it never stalls."
+safety = "readonly"
+requires = []
+warning = "Run from the PARENT folder that holds the repos, not inside one. Ahead/behind is vs the last-known remote without a fetch; add `GIT_TERMINAL_PROMPT=0 git -C \"$d\" fetch` per repo to make it current (but that can stall on a repo with bad credentials)."
