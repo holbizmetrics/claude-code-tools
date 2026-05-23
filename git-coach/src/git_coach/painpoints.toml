@@ -666,3 +666,31 @@ explanation = "Loops over every git repo in the current folder and prints each o
 safety = "readonly"
 requires = []
 warning = "Run from the PARENT folder that holds the repos, not inside one. Ahead/behind is vs the last-known remote without a fetch; add `GIT_TERMINAL_PROMPT=0 git -C \"$d\" fetch` per repo to make it current (but that can stall on a repo with bad credentials)."
+
+[[painpoint]]
+id = "pr.list-open"
+intents = [
+  "is there an open pull request",
+  "show open PRs for this repo",
+  "are my changes stuck in an unmerged PR",
+  "list pull requests",
+]
+command = "gh pr list --state open"
+explanation = "Lists open pull requests for the current repo via the GitHub CLI - catches work that is pushed and waiting in a PR but NOT yet merged to the default branch, so it stays invisible on main."
+safety = "readonly"
+requires = ["in-repo", "has-remote"]
+warning = "Needs the GitHub CLI gh installed and authed via gh auth login. From outside the repo use gh pr list -R owner/repo --state open."
+
+[[painpoint]]
+id = "pr.open-across-repos"
+intents = [
+  "open pull requests across all my repos",
+  "where do i have open PRs",
+  "find unmerged PRs in my whole account",
+  "any open PRs anywhere",
+]
+command = "gh search prs --owner holbizmetrics --state open"
+explanation = "Lists every open pull request across all of an owner's repos in one call - the fast way to find work parked in unmerged PRs anywhere, not just the repo you are standing in."
+safety = "readonly"
+requires = []
+warning = "Needs the GitHub CLI gh authed. Replace holbizmetrics with your own GitHub owner or org."
