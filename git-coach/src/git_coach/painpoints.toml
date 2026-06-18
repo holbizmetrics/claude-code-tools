@@ -30,6 +30,9 @@ intents = [
   "status",
   "whats staged",
   "what did i change",
+  "where am i",
+  "is my work saved",
+  "whats going on in this repo",
 ]
 command = "git status"
 explanation = "Shows current branch, staged and unstaged changes, and untracked files."
@@ -43,6 +46,8 @@ intents = [
   "what happened lately",
   "show history",
   "last commits",
+  "see the history",
+  "what happened in this project",
 ]
 command = "git log --oneline --graph --decorate -20"
 explanation = "Shows the last 20 commits as a compact graph with branch and tag decorations."
@@ -105,6 +110,8 @@ intents = [
   "discard changes to a file",
   "revert file to last commit",
   "undo edits in one file",
+  "i messed up this file",
+  "throw away my changes to a file",
 ]
 command = "git restore <file>"
 explanation = "Discards unstaged changes to a file, restoring it to the last committed version."
@@ -118,6 +125,8 @@ intents = [
   "save my changes for later",
   "put my work aside",
   "stash",
+  "set my work aside for now",
+  "hide my changes temporarily",
 ]
 command = "git stash push -m \"wip\""
 explanation = "Saves current uncommitted changes to the stash and cleans the working tree."
@@ -143,6 +152,8 @@ intents = [
   "send this branch to origin",
   "push my branch",
   "upload commits",
+  "send my work",
+  "share my changes",
 ]
 command = "git push"
 explanation = "Pushes the current branch to its upstream remote."
@@ -1041,3 +1052,75 @@ command = "git diff HEAD~1 HEAD"
 explanation = "Shows what changed in the most recent commit, comparing it to the commit before it."
 safety = "readonly"
 requires = ["in-repo", "has-commits"]
+
+# ── Beginner pack: genuinely-new commands beginners ask for ──
+
+[[painpoint]]
+id = "basics.save-work"
+intents = [
+  "save my work",
+  "commit everything",
+  "save all my changes",
+  "how do i commit",
+  "make a commit with all my changes",
+]
+command = 'git add -A && git commit -m "<message>"'
+explanation = "Stages every change (including new files) and commits them with your message."
+safety = "worktree"
+requires = ["in-repo"]
+warning = "git add -A includes untracked files too. Check 'git status' first so you do not commit scratch files."
+
+[[painpoint]]
+id = "basics.get-latest"
+intents = [
+  "get the latest",
+  "update my code",
+  "pull the newest changes",
+  "download the latest",
+  "how do i get updates",
+]
+command = "git pull"
+explanation = "Fetches and integrates the latest changes from the remote into your current branch."
+safety = "worktree"
+requires = ["in-repo", "has-upstream"]
+warning = "Commit or stash your own changes first, or the pull may refuse or cause conflicts."
+
+[[painpoint]]
+id = "basics.new-branch"
+intents = [
+  "make a new branch",
+  "create a branch here",
+  "start a new branch from where i am",
+  "branch off",
+]
+command = "git switch -c <new-branch>"
+explanation = "Creates a new branch starting from your current commit and switches to it."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "basics.discard-all"
+intents = [
+  "throw away all my changes",
+  "discard everything i changed",
+  "reset all my uncommitted work",
+  "start over from the last commit",
+]
+command = "git restore --worktree --staged ."
+explanation = "Discards ALL uncommitted changes (staged and unstaged) in the current tree, restoring everything to the last commit."
+safety = "destructive"
+requires = ["in-repo", "dirty"]
+warning = "Cannot be undone - every uncommitted change is gone. Your commits are not affected."
+
+[[painpoint]]
+id = "basics.unstage-file"
+intents = [
+  "unstage a file",
+  "i staged the wrong file",
+  "take a file out of staging",
+  "remove a file from the index",
+]
+command = "git restore --staged <file>"
+explanation = "Removes a file from the staging area but keeps your changes in the working tree."
+safety = "worktree"
+requires = ["in-repo"]
