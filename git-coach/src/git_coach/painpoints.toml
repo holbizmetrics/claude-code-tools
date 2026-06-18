@@ -1000,3 +1000,44 @@ command = "git --no-pager log -20"
 explanation = "Runs a git command without the interactive pager, dumping output straight to the terminal. The --no-pager flag works on any subcommand."
 safety = "readonly"
 requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "files.list-tracked"
+intents = [
+  "list all files in the repo",
+  "list all tracked files",
+  "show all files git knows about",
+  "what files are in the repository",
+  "list files",
+]
+command = "git ls-files"
+explanation = "Lists every tracked file in the repository."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "files.list-untracked"
+intents = [
+  "list untracked files",
+  "show files not in git",
+  "what files are not tracked",
+  "list new files not added yet",
+]
+command = "git ls-files --others --exclude-standard"
+explanation = "Lists files that are neither tracked nor ignored - the new files you have not added."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "diff.previous-commit"
+intents = [
+  "compare to the previous version",
+  "what changed in the last commit",
+  "compare to the previous commit",
+  "diff the last commit",
+  "what did the last commit change",
+]
+command = "git diff HEAD~1 HEAD"
+explanation = "Shows what changed in the most recent commit, comparing it to the commit before it."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]

@@ -135,7 +135,7 @@ def confirm(prompt: str) -> bool:
 
 def run(p: Painpoint) -> int:
     if "<" in p.command or ">" in p.command:
-        print("This command has a placeholder — edit and run it yourself.")
+        print("This command has a placeholder - edit and run it yourself.")
         return 0
     if p.safety == "readonly":
         pass
@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Multiple matches for: {query!r}")
     for i, (p, s) in enumerate(results, 1):
-        print(f"  {i}. {p.id}  —  {p.command}  (score {int(s)})")
+        print(f"  {i}. {p.id}  -  {p.command}  (score {int(s)})")
     try:
         pick = input("Pick [1]: ").strip() or "1"
         idx = int(pick) - 1
