@@ -694,3 +694,309 @@ explanation = "Lists every open pull request across all of an owner's repos in o
 safety = "readonly"
 requires = []
 warning = "Needs the GitHub CLI gh authed. Replace holbizmetrics with your own GitHub owner or org."
+
+# ── Harvested 2026-06-18 from a personal git cheatsheet (branches, blame, exclude,
+#    tracking, staging, reset, diff, grep) — gaps the seed DB did not yet cover. ──
+
+[[painpoint]]
+id = "branch.new-from-main"
+intents = [
+  "start a new branch from main",
+  "create a branch off main",
+  "new branch from origin main",
+  "branch from current main not my head",
+]
+command = "git fetch origin && git switch -c <new-branch> origin/main"
+explanation = "Refreshes remote refs, then creates and switches to a new branch based on the CURRENT origin/main, not your possibly-stale local HEAD."
+safety = "worktree"
+requires = ["in-repo", "has-remote"]
+warning = "Plain 'Create Branch' in editors branches from HEAD. Always base on origin/main."
+
+[[painpoint]]
+id = "branch.switch"
+intents = [
+  "switch to an existing branch",
+  "checkout a branch",
+  "change to another branch",
+  "go to branch",
+]
+command = "git switch <branch>"
+explanation = "Checks out an existing local branch. Use 'git switch -c' to create a new one."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "branch.set-upstream-no-push"
+intents = [
+  "set upstream without pushing",
+  "track a remote branch",
+  "link my branch to origin without push",
+  "set tracking branch",
+]
+command = "git branch --set-upstream-to=origin/<branch>"
+explanation = "Links the current branch to a remote tracking branch without pushing, so plain pull/push know where to go."
+safety = "worktree"
+requires = ["in-repo", "has-remote"]
+
+[[painpoint]]
+id = "blame.line-range"
+intents = [
+  "who wrote this line",
+  "blame lines 50 to 80",
+  "who changed this code",
+  "last commit to touch this line",
+]
+command = "git blame -L <start>,<end> -- <file>"
+explanation = "Shows the commit, author, and date for each line in the given range of a file."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "blame.file"
+intents = [
+  "blame this file",
+  "who wrote this file",
+  "annotate file with authors",
+  "line by line authorship",
+]
+command = "git blame -- <file>"
+explanation = "Shows commit, author, and date for every line of a file."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "blame.as-of-ref"
+intents = [
+  "blame as of main",
+  "who wrote this on origin main not my working copy",
+  "blame at a branch",
+  "blame ignoring my local changes",
+]
+command = "git blame origin/main -- <file>"
+explanation = "Blames the file as it exists at a given ref (e.g. origin/main) instead of your working tree."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "exclude.local-ignore"
+intents = [
+  "ignore a file without gitignore",
+  "stop a scratch file from showing in git",
+  "ignore locally only not for everyone",
+  "private ignore this file",
+]
+command = 'echo "<file>" >> .git/info/exclude'
+explanation = "Adds a per-clone ignore rule that is never tracked or pushed - your private exclude list. Only works on untracked files."
+safety = "worktree"
+requires = ["in-repo"]
+warning = "If the file is already tracked, run 'git rm --cached <file>' first."
+
+[[painpoint]]
+id = "exclude.unstage-scratch"
+intents = [
+  "i accidentally staged a scratch file",
+  "unstage and ignore a file",
+  "remove from staging and stop it showing",
+]
+command = 'git restore --staged <file> && echo "<file>" >> .git/info/exclude'
+explanation = "Unstages a file (keeping it on disk) and adds it to the local exclude list so it stops appearing."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "track.is-tracked"
+intents = [
+  "is this file tracked",
+  "does git track this file",
+  "check if file is in the repo",
+]
+command = "git ls-files --error-unmatch -- <file>"
+explanation = "Exits 0 if the file is tracked, non-zero if not. Handy in scripts."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "track.why-ignored"
+intents = [
+  "why is this file ignored",
+  "which rule ignores this file",
+  "what gitignore rule applies",
+]
+command = "git check-ignore -v <file>"
+explanation = "Shows which ignore rule (and which file) causes a path to be ignored."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "track.untrack"
+intents = [
+  "untrack a file but keep it",
+  "stop tracking without deleting",
+  "remove from git but keep on disk",
+]
+command = "git rm --cached <file>"
+explanation = "Stops tracking a file while leaving it on disk. Commit the removal and add it to .gitignore so it stays out."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "stage.interactive"
+intents = [
+  "stage parts of a file",
+  "stage hunks interactively",
+  "pick which changes to stage",
+  "partial staging",
+]
+command = "git add -p"
+explanation = "Interactively choose which hunks to stage, one at a time."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "stage.tracked"
+intents = [
+  "stage all tracked changes",
+  "stage modified files but not new ones",
+  "add changed files without untracked",
+]
+command = "git add -u"
+explanation = "Stages changes to already-tracked files only; leaves untracked files alone."
+safety = "worktree"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "stage.all"
+intents = [
+  "stage everything",
+  "add all changes including new files",
+  "stage all",
+]
+command = "git add -A"
+explanation = "Stages everything - modifications, deletions, AND untracked files."
+safety = "worktree"
+requires = ["in-repo"]
+warning = "Sweeps untracked files too; check 'git status' first so you do not add scratch files."
+
+[[painpoint]]
+id = "reset.mixed"
+intents = [
+  "undo last commit keep changes unstaged",
+  "uncommit but keep my edits",
+  "undo commit to working tree",
+]
+command = "git reset --mixed HEAD~1"
+explanation = "Removes the last commit but keeps its changes in your working tree, unstaged."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "reset.hard"
+intents = [
+  "discard my last commit and changes",
+  "throw away last commit completely",
+  "hard reset one commit",
+  "delete uncommitted work and last commit",
+]
+command = "git reset --hard HEAD~1"
+explanation = "Removes the last commit AND discards all uncommitted changes in the working tree."
+safety = "destructive"
+requires = ["in-repo", "has-commits"]
+warning = "Irreversible for uncommitted work. Recover the commit via 'git reflog' within ~30 days; uncommitted changes are gone."
+
+[[painpoint]]
+id = "diff.everything"
+intents = [
+  "show all my changes staged and unstaged",
+  "diff everything against last commit",
+  "full diff vs head",
+]
+command = "git diff HEAD"
+explanation = "Shows working-tree AND staged changes together, compared to the last commit."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
+
+[[painpoint]]
+id = "diff.name-only"
+intents = [
+  "which files changed",
+  "list changed file names",
+  "just the filenames not the diff",
+]
+command = "git diff --name-only"
+explanation = "Lists only the names of files with unstaged changes, not the content."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "diff.ignore-whitespace"
+intents = [
+  "diff ignoring whitespace",
+  "show changes but skip indentation",
+  "diff without whitespace noise",
+]
+command = "git diff -b"
+explanation = "Shows the diff while ignoring changes in the amount of whitespace."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "diff.word"
+intents = [
+  "word level diff",
+  "diff by words not lines",
+  "show prose changes inline",
+]
+command = "git diff --color-words"
+explanation = "Highlights changes word-by-word instead of line-by-line - great for prose and comments."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "grep.tracked"
+intents = [
+  "search the code",
+  "find a string in tracked files",
+  "grep the repo",
+  "search repository contents",
+]
+command = "git grep -n <pattern>"
+explanation = "Searches tracked files for a pattern, with line numbers. Faster and cleaner than plain grep."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "status.short"
+intents = [
+  "compact status",
+  "short status with branch",
+  "quick status",
+]
+command = "git status -sb"
+explanation = "Short, dense status with branch and ahead/behind info - the daily form."
+safety = "readonly"
+requires = ["in-repo"]
+
+[[painpoint]]
+id = "commit.amend-add-staged"
+intents = [
+  "add forgotten changes to last commit",
+  "amend without changing the message",
+  "fold staged changes into previous commit",
+]
+command = "git commit --amend --no-edit"
+explanation = "Adds the currently staged changes to the last commit, keeping its message."
+safety = "history"
+requires = ["in-repo", "has-commits"]
+warning = "Rewrites the last commit. If it was already pushed, you will need 'git push --force-with-lease'."
+
+[[painpoint]]
+id = "pager.no-pager"
+intents = [
+  "dont use the pager",
+  "print git output inline",
+  "disable less for git",
+]
+command = "git --no-pager log -20"
+explanation = "Runs a git command without the interactive pager, dumping output straight to the terminal. The --no-pager flag works on any subcommand."
+safety = "readonly"
+requires = ["in-repo", "has-commits"]
