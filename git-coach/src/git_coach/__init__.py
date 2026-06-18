@@ -156,30 +156,17 @@ def run(p: Painpoint) -> int:
     return subprocess.call(p.command, shell=True)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="git-coach",
-        description="A deterministic git coach.",
-    )
-    parser.add_argument("query", nargs="+", help="what you want git to do, in plain words")
-    parser.add_argument("--run", action="store_true", help="offer to run the chosen command")
-    parser.add_argument("--file", type=Path, default=None, help="path to a custom painpoints.toml")
-    parser.add_argument("--version", action="version", version=f"git-coach {__version__}")
-    args = parser.parse_args(argv)
+COACH_BANNER = (
+    "git-coach  -  a deterministic git coach.\n"
+    "Type what you want git to do, in plain words; I'll show you the exact command.\n"
+    "  examples:  list the files of the repo  |  compare to main  |  undo my last commit\n"
+    "  commands:  help  (show this)     quit / exit  (leave)\n"
+    "Nothing runs without showing you the command first."
+)
 
-    query = " ".join(args.query)
-    try:
-        painpoints = load_painpoints(args.file)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"Error loading painpoints: {e}", file=sys.stderr)
-        return 2
 
-    state = RepoState()
-    if not state.check("in-repo"):
-        print("Not inside a git repository.", file=sys.stderr)
-        return 2
-
-    eligible = [p for p in painpoints if state.satisfies(p.requires)]
+def answer(query: str, eligible: list[Painpoint], do_run: bool) -> int:
+    """Resolve one plain-words query: rank, show the command, optionally run it."""
     results = rank(query, eligible)
 
     if not results:
@@ -192,9 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     if runaway:
         print(f"Match: {top.id}  (score {int(top_score)})")
         display(top)
-        if args.run:
-            return run(top)
-        return 0
+        return run(top) if do_run else 0
 
     print(f"Multiple matches for: {query!r}")
     for i, (p, s) in enumerate(results, 1):
@@ -210,6 +195,57 @@ def main(argv: list[str] | None = None) -> int:
 
     chosen = results[idx][0]
     display(chosen)
-    if args.run:
-        return run(chosen)
-    return 0
+    return run(chosen) if do_run else 0
+
+
+def repl(eligible: list[Painpoint], do_run: bool) -> int:
+    """Interactive coach: ask in plain words, get the command, learn as you go."""
+    print(COACH_BANNER)
+    while True:
+        try:
+            line = input("\ngit-coach> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if not line:
+            continue
+        if line.lower() in ("quit", "exit", "q"):
+            return 0
+        if line.lower() in ("help", "?", "h"):
+            print(COACH_BANNER)
+            continue
+        answer(line, eligible, do_run)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="git-coach",
+        description="A deterministic git coach.",
+    )
+    parser.add_argument(
+        "query", nargs="*",
+        help="what you want git to do, in plain words (omit to start interactive coach mode)",
+    )
+    parser.add_argument("--run", action="store_true", help="offer to run the chosen command")
+    parser.add_argument("--file", type=Path, default=None, help="path to a custom painpoints.toml")
+    parser.add_argument("--version", action="version", version=f"git-coach {__version__}")
+    args = parser.parse_args(argv)
+
+    try:
+        painpoints = load_painpoints(args.file)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error loading painpoints: {e}", file=sys.stderr)
+        return 2
+
+    state = RepoState()
+    if not state.check("in-repo"):
+        print("Not inside a git repository.", file=sys.stderr)
+        return 2
+
+    eligible = [p for p in painpoints if state.satisfies(p.requires)]
+
+    # No query -> interactive coach mode (bare `git-coach`, or `git-coach --run`).
+    if not args.query:
+        return repl(eligible, args.run)
+
+    return answer(" ".join(args.query), eligible, args.run)

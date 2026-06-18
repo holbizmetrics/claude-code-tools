@@ -30,6 +30,17 @@ git-coach --run what changed
 
 Pass `--run` to offer execution after displaying the command. Without it, `git-coach` only shows the command and explanation.
 
+### Interactive coach mode
+
+Run `git-coach` with **no query** to drop into an interactive session — a welcome banner, then a `git-coach>` prompt where you ask in plain words and get the command back, question after question:
+
+```bash
+git-coach              # interactive, display-only
+git-coach --run        # interactive, and offer to run each command
+```
+
+Type `help` to re-show the banner, `quit` / `exit` to leave. Good for beginners exploring "how do I…" without re-typing `git-coach` each time.
+
 ## Adding pain points
 
 Edit `src/git_coach/painpoints.toml`. Each entry:
