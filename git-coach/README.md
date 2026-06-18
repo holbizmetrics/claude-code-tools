@@ -41,6 +41,8 @@ git-coach --run        # interactive, and offer to run each command
 
 Type `help` to re-show the banner, `quit` / `exit` to leave. Good for beginners exploring "how do I…" without re-typing `git-coach` each time.
 
+You can also type a **real git command directly** (e.g. `git ls-files`) — the coach recognizes it instead of fuzzy-guessing — and prefix any command with **`run `** (e.g. `run git ls-files`) to execute it on the spot. Commands that can rewrite or lose work (`--force`, `reset --hard`, `clean -f`, `rebase`, …) ask for confirmation first.
+
 ## Adding pain points
 
 Edit `src/git_coach/painpoints.toml`. Each entry:

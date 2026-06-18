@@ -198,6 +198,33 @@ def answer(query: str, eligible: list[Painpoint], do_run: bool) -> int:
     return run(chosen) if do_run else 0
 
 
+RISKY = ("--force", "reset --hard", "clean -f", "filter-branch", "rebase", "push -f")
+
+
+def run_literal(cmd: str, want_run: bool) -> int:
+    """Handle a line that is already a literal git command, not a plain-words intent."""
+    if not want_run:
+        print(f"\n  That is already a git command:  {cmd}")
+        print(f"  To run it from here:  run {cmd}   (or start git-coach with --run)\n")
+        return 0
+    risky = any(t in cmd for t in RISKY)
+    if risky and not confirm("This can rewrite or lose work. Run it anyway? [y/N] "):
+        return 0
+    print(f"$ {cmd}")
+    return subprocess.call(cmd, shell=True)
+
+
+def dispatch(line: str, eligible: list[Painpoint], do_run: bool) -> int:
+    """Route one line: an explicit 'run ...', a literal 'git ...' command, or a plain-words query."""
+    forced = False
+    if line.lower().startswith("run "):
+        line = line[4:].strip()
+        forced = True
+    if line == "git" or line.startswith("git "):
+        return run_literal(line, do_run or forced)
+    return answer(line, eligible, do_run)
+
+
 def repl(eligible: list[Painpoint], do_run: bool) -> int:
     """Interactive coach: ask in plain words, get the command, learn as you go."""
     print(COACH_BANNER)
@@ -214,7 +241,7 @@ def repl(eligible: list[Painpoint], do_run: bool) -> int:
         if line.lower() in ("help", "?", "h"):
             print(COACH_BANNER)
             continue
-        answer(line, eligible, do_run)
+        dispatch(line, eligible, do_run)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -248,4 +275,4 @@ def main(argv: list[str] | None = None) -> int:
     if not args.query:
         return repl(eligible, args.run)
 
-    return answer(" ".join(args.query), eligible, args.run)
+    return dispatch(" ".join(args.query), eligible, args.run)
