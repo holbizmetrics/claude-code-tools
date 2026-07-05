@@ -706,6 +706,21 @@ safety = "readonly"
 requires = []
 warning = "Needs the GitHub CLI gh authed. Replace holbizmetrics with your own GitHub owner or org."
 
+[[painpoint]]
+id = "repo.list-all"
+intents = [
+  "list all my repos",
+  "show all my github repositories",
+  "what repos do i have",
+  "overview of my repos sorted by activity",
+  "which repos did i push to recently",
+]
+command = "gh repo list holbizmetrics --limit 200"
+explanation = "Lists every repo in the account, most recently pushed first - the bare command silently caps at 30, so --limit is what makes it a real inventory; add --json name,visibility,pushedAt,description (and --jq) when you want machine-readable output for scripting."
+safety = "readonly"
+requires = []
+warning = "Needs the GitHub CLI gh authed. Replace holbizmetrics with your own GitHub owner or org."
+
 # ── Harvested 2026-06-18 from a personal git cheatsheet (branches, blame, exclude,
 #    tracking, staging, reset, diff, grep) — gaps the seed DB did not yet cover. ──
 
