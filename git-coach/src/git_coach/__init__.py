@@ -294,9 +294,32 @@ def _norm_exts(raw: str | None) -> tuple[str, ...] | None:
     return tuple(out) or None
 
 
-def _iter_files(root: Path, exts: tuple[str, ...] | None = None):
+def _walk_safe(root: Path):
+    """os.walk with reparse-point / junction cycle protection + _SKIP_DIRS pruning.
+
+    os.walk follows Windows junctions even with followlinks=False (they are reparse
+    points, not symlinks), so a junction that points back up its own tree loops until
+    MAX_PATH cuts it -- inflating file counts (a 1-file dir scanned as 64). Prune any
+    directory whose real identity (st_dev, st_ino) was already entered this walk.
+    """
+    visited: set[tuple[int, int]] = set()
     for dirpath, dirnames, filenames in os.walk(root):
+        try:
+            st = os.stat(dirpath)
+        except OSError:
+            dirnames[:] = []
+            continue
+        key = (st.st_dev, st.st_ino)
+        if key in visited:
+            dirnames[:] = []      # already walked this real dir -> a cycle, stop here
+            continue
+        visited.add(key)
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        yield dirpath, dirnames, filenames
+
+
+def _iter_files(root: Path, exts: tuple[str, ...] | None = None):
+    for dirpath, _dirnames, filenames in _walk_safe(root):
         for name in filenames:
             if exts and not name.lower().endswith(exts):
                 continue
@@ -356,7 +379,18 @@ def _find_repos(root: Path, max_depth: int = 4) -> list[Path]:
     root = root.resolve()
     base = len(root.parts)
     repos = []
+    visited: set[tuple[int, int]] = set()
     for dirpath, dirnames, _ in os.walk(root):
+        try:
+            st = os.stat(dirpath)
+        except OSError:
+            dirnames[:] = []
+            continue
+        key = (st.st_dev, st.st_ino)
+        if key in visited:
+            dirnames[:] = []       # junction/symlink cycle -- do not re-descend
+            continue
+        visited.add(key)
         d = Path(dirpath)
         if (d / ".git").exists():
             repos.append(d)
@@ -369,30 +403,41 @@ def _find_repos(root: Path, max_depth: int = 4) -> list[Path]:
 
 
 def _repo_fingerprint(repo: Path) -> dict:
-    """Normalized-hash fingerprint of a repo's TRACKED files (hashes + basenames)."""
+    """Normalized-hash fingerprint of a repo's TRACKED files (hashes + basenames).
+
+    `ok` is False when `git ls-files` failed: the repo then contributes NOTHING to
+    provenance. The failure direction is safe (an affected folder reads as ORPHAN/AHEAD,
+    never a false REDUNDANT) but it silently shrinks coverage -- so we warn, loudly.
+    """
     code, out = _git("-C", str(repo), "ls-files", "-z")
     hashes: set[str] = set()
     basenames: set[str] = set()
-    if code == 0:
-        for rel in out.split("\0"):
-            if not rel:
-                continue
-            h = normalized_hash(repo / rel)
-            if h is None:
-                continue
-            hashes.add(h)
-            basenames.add(Path(rel).name)
-    return {"repo": str(repo), "hashes": hashes, "basenames": basenames}
+    if code != 0:
+        print(f"warning: could not read tracked files of {repo} "
+              f"(git ls-files exit {code}); it will NOT count toward provenance.",
+              file=sys.stderr)
+        return {"repo": str(repo), "hashes": hashes, "basenames": basenames, "ok": False}
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        h = normalized_hash(repo / rel)
+        if h is None:
+            continue
+        hashes.add(h)
+        basenames.add(Path(rel).name)
+    return {"repo": str(repo), "hashes": hashes, "basenames": basenames, "ok": True}
 
 
 def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
     """Classify `folder` against the repos found under `repo_roots`, by content-hash.
 
     Verdict:
-      REDUNDANT  every file is already in your repos  -> safe to delete the folder
-      AHEAD      folder holds content no repo has     -> stranded work, rescue it
-      ORPHAN     none of it is in any scanned repo    -> it needs a home
-      EMPTY      no hashable files
+      PART-OF-REPO  the folder lives INSIDE a scanned repo's working tree -> it IS
+                    part of that repo, not a loose copy; deleting it deletes repo content
+      REDUNDANT     every file is already in your repos  -> safe to delete the folder
+      AHEAD         folder holds content no repo has     -> stranded work, rescue it
+      ORPHAN        none of it is in any scanned repo    -> it needs a home
+      EMPTY         no hashable files
     """
     files: dict[str, tuple[str, str]] = {}
     for fp in _iter_files(folder):
@@ -402,6 +447,7 @@ def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
         files[str(fp.relative_to(folder))] = (h, fp.name)
 
     repos: list[dict] = []
+    repo_paths: list[Path] = []
     seen: set[str] = set()
     for r in repo_roots:
         for repo in _find_repos(r):
@@ -409,11 +455,25 @@ def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
             if key in seen:
                 continue
             seen.add(key)
+            repo_paths.append(repo)
             repos.append(_repo_fingerprint(repo))
+    repos_failed = sum(1 for rc in repos if not rc.get("ok", True))
+
+    # Must-fix guard: if the folder IS a scanned repo, or lives inside one, it is PART
+    # of that repo -- never advise deleting it as a "loose copy" (that deletes repo content).
+    folder_res = folder.resolve()
+    inside_repo = None
+    for repo in repo_paths:
+        rr = repo.resolve()
+        if folder_res == rr or folder_res.is_relative_to(rr):
+            inside_repo = str(rr)
+            break
+
+    base = {"folder": str(folder), "n_files": len(files), "repos_scanned": len(repos),
+            "repos_failed": repos_failed, "inside_repo": inside_repo, "containing_repos": 0}
 
     if not files:
-        return {"folder": str(folder), "n_files": 0, "repos_scanned": len(repos),
-                "best_repo": None, "best_matches": 0, "verdict": "EMPTY",
+        return {**base, "best_repo": None, "best_matches": 0, "verdict": "EMPTY",
                 "files": [], "stranded": []}
 
     def matches(rc: dict) -> int:
@@ -422,6 +482,7 @@ def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
     best = max(repos, key=matches) if repos else None
     best_n = matches(best) if best else 0
     any_hashes = set().union(*(rc["hashes"] for rc in repos)) if repos else set()
+    containing_repos = sum(1 for rc in repos if matches(rc) > 0)
 
     classified = []
     stranded = []
@@ -431,22 +492,24 @@ def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
         elif h in any_hashes:
             status = "elsewhere"        # content lives in a different repo (still safe)
         elif best and name in best["basenames"]:
-            status = "modified"         # heuristic: same filename in best repo, content differs
+            status = "name-clash"       # same filename in best repo, DIFFERENT content --
+                                        # could be your edit OR a coincidental name match
         else:
             status = "new"
         classified.append({"rel": rel, "status": status})
-        if status in ("modified", "new"):
+        if status in ("name-clash", "new"):
             stranded.append(rel)
 
-    n_homeless = sum(1 for c in classified if c["status"] in ("modified", "new"))
-    if n_homeless == len(files):
+    if inside_repo:
+        verdict = "PART-OF-REPO"        # precedence: never "safe to delete" a repo subdir
+    elif len(stranded) == len(files):
         verdict = "ORPHAN"
     elif stranded:
         verdict = "AHEAD"
     else:
         verdict = "REDUNDANT"
 
-    return {"folder": str(folder), "n_files": len(files), "repos_scanned": len(repos),
+    return {**base, "containing_repos": containing_repos,
             "best_repo": best["repo"] if best else None, "best_matches": best_n,
             "verdict": verdict, "files": classified, "stranded": stranded}
 
@@ -495,26 +558,47 @@ def cmd_locate(rest: list[str], repos_root: Path | None) -> int:
     roots = [repos_root.expanduser()] if repos_root else [folder.resolve().parent]
     res = locate_scan(folder, roots)
     print(f"\nLOCATE  {res['folder']}  ({res['n_files']} files)")
-    print(f"  scanned {res['repos_scanned']} repo(s) under {roots[0]}")
+    scanned = f"  scanned {res['repos_scanned']} repo(s) under {roots[0]}"
+    if res.get("repos_failed"):
+        scanned += f"  ({res['repos_failed']} unreadable, excluded -- see warnings above)"
+    print(scanned)
     if res["best_repo"]:
         print(f"  best match: {res['best_repo']}  ({res['best_matches']}/{res['n_files']} files present)")
     print()
     v = res["verdict"]
     if v == "EMPTY":
         print("  Verdict: EMPTY -- no hashable files in this folder.\n")
+    elif v == "PART-OF-REPO":
+        print("  Verdict: PART-OF-REPO -- this folder lives INSIDE the tracked repo:")
+        print(f"           {res['inside_repo']}")
+        print("           It is part of that repo's working tree, NOT a loose copy -- do")
+        print("           not delete it as redundant.")
+        if res["stranded"]:
+            print(f"           Note: {len(res['stranded'])} file(s) here are not committed to it:")
+            for c in res["files"]:
+                if c["status"] in ("name-clash", "new"):
+                    print(f"             {c['rel']}")
+        print()
     elif v == "REDUNDANT":
-        print(f"  Verdict: REDUNDANT -- every file already lives in your repos.")
-        print(f"           Safe to delete this folder (nothing unique is here).\n")
+        spread = ""
+        if res.get("containing_repos", 0) > 1:
+            spread = f" (spread across {res['containing_repos']} of your repos)"
+        print(f"  Verdict: REDUNDANT -- every file already lives in your repos{spread}.")
+        print("           Safe to delete this folder (nothing unique is here).\n")
     elif v == "ORPHAN":
         print("  Verdict: ORPHAN -- none of this folder's content is in any scanned repo.")
         print("           It needs a home. (Expected a match? widen with --repos <root>.)\n")
     else:  # AHEAD
-        print(f"  Verdict: AHEAD -- this folder holds {len(res['stranded'])} file(s) no repo has (stranded work):")
+        print(f"  Verdict: AHEAD -- this folder holds {len(res['stranded'])} file(s) no repo has:")
         for c in res["files"]:
-            if c["status"] in ("modified", "new"):
-                note = "  (a file of this name exists in the best-match repo; content differs)" if c["status"] == "modified" else ""
-                print(f"       [{c['status']:<8}] {c['rel']}{note}")
-        print(f"  Next: commit the stranded file(s) into {res['best_repo']}, or treat this folder as a fork.\n")
+            if c["status"] == "new":
+                print(f"       [new       ] {c['rel']}")
+            elif c["status"] == "name-clash":
+                print(f"       [name-clash] {c['rel']}  (a DIFFERENT file of this name is in the "
+                      "best-match repo -- your edit, or coincidence? diff before assuming)")
+        print("  Next: the [new] files have no home yet; the [name-clash] files share a name with")
+        print(f"        a file in {res['best_repo']} but differ -- compare them before assuming")
+        print("        they belong together.\n")
     return 0
 
 

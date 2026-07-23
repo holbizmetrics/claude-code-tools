@@ -16,7 +16,9 @@ from git_coach import (
     locate_scan,
     normalized_hash,
     rank,
+    _iter_files,
     _norm_exts,
+    _repo_fingerprint,
 )
 
 
@@ -288,3 +290,70 @@ def test_locate_empty_folder(tmp_path):
     folder.mkdir()
     res = locate_scan(folder, [tmp_path])
     assert res["verdict"] == "EMPTY"
+
+
+# --- verifier findings (windows-claude-55ef3834, re:b49c7cb1) --------------
+
+def test_locate_subdir_of_repo_is_part_of_repo(tmp_path):
+    # MUST-FIX (4c): a subdir of a tracked repo must NOT read as "safe to delete".
+    _make_repo(tmp_path / "repo", {"sub/notes.md": b"hello\n"})
+    res = locate_scan(tmp_path / "repo" / "sub", [tmp_path])
+    assert res["verdict"] == "PART-OF-REPO"
+    assert res["inside_repo"] == str((tmp_path / "repo").resolve())
+
+
+def test_locate_name_clash_is_flagged_not_lineage(tmp_path):
+    # Nit (3): a folder file that only SHARES A NAME with a repo file (different
+    # content) is a name-clash, not a confirmed edit -- distinct status, no false lineage.
+    _make_repo(tmp_path / "repo", {"README.md": b"the real repo readme\n", "keep.md": b"kept\n"})
+    folder = tmp_path / "loose"
+    folder.mkdir()
+    (folder / "keep.md").write_bytes(b"kept\n")                       # same -> present
+    (folder / "README.md").write_bytes(b"unrelated notes reusing a common name\n")
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "AHEAD"
+    clash = [c for c in res["files"] if c["rel"] == "README.md"]
+    assert clash and clash[0]["status"] == "name-clash"
+    assert "README.md" in res["stranded"]
+
+
+def test_locate_across_two_repos_is_redundant(tmp_path):
+    # 4a: content split across two repos is still fully contained -> REDUNDANT, annotated.
+    _make_repo(tmp_path / "repoA", {"a.md": b"alpha\n"})
+    _make_repo(tmp_path / "repoB", {"b.md": b"bravo\n"})
+    folder = tmp_path / "mix"
+    folder.mkdir()
+    (folder / "a.md").write_bytes(b"alpha\n")
+    (folder / "b.md").write_bytes(b"bravo\n")
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "REDUNDANT"
+    assert res["containing_repos"] == 2
+
+
+def test_repo_fingerprint_warns_and_empties_on_non_repo(tmp_path, capsys):
+    # Bonus: a repo whose git ls-files fails must warn, not silently shrink coverage.
+    plain = tmp_path / "notarepo"
+    plain.mkdir()
+    fp = _repo_fingerprint(plain)
+    assert fp["ok"] is False
+    assert fp["hashes"] == set()
+    assert "could not read tracked files" in capsys.readouterr().err
+
+
+def test_iter_files_survives_junction_cycle(tmp_path):
+    # 4d: os.walk follows Windows junctions; a self-referential loop must be pruned,
+    # the one real file counted once, and the scan must terminate.
+    import platform
+    if platform.system() != "Windows":
+        pytest.skip("junction reparse-point cycle is a Windows-specific case")
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "f.txt").write_bytes(b"x\n")
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(real / "loop"), str(real)],
+        capture_output=True, text=True, errors="replace",  # cmd's localized output may be non-ASCII
+    )
+    if made.returncode != 0:
+        pytest.skip(f"could not create junction: {made.stderr.strip()}")
+    hits = [f for f in _iter_files(tmp_path) if f.name == "f.txt"]
+    assert len(hits) == 1  # counted once despite the cycle -- and did not hang

@@ -50,9 +50,10 @@ Two subcommands answer a different question from the rest of the tool — not "w
 ```bash
 # Which repo does this detached folder belong to, and what is its relationship?
 git-coach locate ./some-folder --repos ~/code
-#   REDUNDANT  every file is already in your repos -> safe to delete the folder
-#   AHEAD      the folder holds files no repo has  -> stranded work, rescue it
-#   ORPHAN     none of it is in any scanned repo   -> it needs a home
+#   PART-OF-REPO  the folder lives inside a scanned repo -> not a copy, don't delete
+#   REDUNDANT     every file is already in your repos    -> safe to delete the folder
+#   AHEAD         the folder holds files no repo has     -> stranded work, rescue it
+#   ORPHAN        none of it is in any scanned repo      -> it needs a home
 
 # Which files under here are duplicates, or same-named forks?
 git-coach dedup ./messy-dir --ext .md,.txt
