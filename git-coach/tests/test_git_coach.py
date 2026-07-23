@@ -1,10 +1,23 @@
 """Tests for git-coach. Three surfaces: load, rank, state."""
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
 import git_coach
-from git_coach import Painpoint, RepoState, load_painpoints, rank, SAFETY_LABELS
+from git_coach import (
+    Painpoint,
+    RepoState,
+    SAFETY_LABELS,
+    dedup_scan,
+    load_painpoints,
+    locate_scan,
+    normalized_hash,
+    rank,
+    _norm_exts,
+)
 
 
 # --- load -----------------------------------------------------------------
@@ -138,3 +151,140 @@ def test_state_empty_requires_always_satisfies(monkeypatch):
     monkeypatch.setattr(git_coach, "_git", lambda *a: (1, ""))  # everything fails
     state = RepoState()
     assert state.satisfies(()) is True
+
+
+# --- locate / dedup (content-addressed provenance) ------------------------
+# Identity is normalized content, so line-endings must not create false
+# differences -- the CRLF/LF cases below are the load-bearing invariant.
+
+def test_normalized_hash_crlf_equals_lf(tmp_path):
+    lf = tmp_path / "lf.txt"
+    crlf = tmp_path / "crlf.txt"
+    lf.write_bytes(b"alpha\nbeta\ngamma\n")
+    crlf.write_bytes(b"alpha\r\nbeta\r\ngamma\r\n")
+    assert normalized_hash(lf) == normalized_hash(crlf)
+
+
+def test_normalized_hash_distinguishes_content(tmp_path):
+    a = tmp_path / "a.txt"
+    a.write_bytes(b"alpha\n")
+    b = tmp_path / "b.txt"
+    b.write_bytes(b"beta\n")
+    assert normalized_hash(a) != normalized_hash(b)
+
+
+def test_normalized_hash_missing_file_is_none(tmp_path):
+    assert normalized_hash(tmp_path / "nope.txt") is None
+
+
+def test_dedup_groups_identical_copies(tmp_path):
+    (tmp_path / "d1").mkdir()
+    (tmp_path / "d2").mkdir()
+    for p in (tmp_path / "x.txt", tmp_path / "d1" / "y.txt", tmp_path / "d2" / "z.txt"):
+        p.write_bytes(b"same content\n")
+    (tmp_path / "other.txt").write_bytes(b"different\n")
+    res = dedup_scan(tmp_path)
+    assert res["n_files"] == 4
+    assert len(res["duplicate_groups"]) == 1
+    assert len(res["duplicate_groups"][0]["paths"]) == 3
+
+
+def test_dedup_finds_forks_same_name(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a" / "notes.md").write_bytes(b"v1\n")
+    (tmp_path / "b" / "notes.md").write_bytes(b"v1 with more content\n")
+    res = dedup_scan(tmp_path)
+    forks = [g for g in res["fork_groups"] if g["name"] == "notes.md"]
+    assert len(forks) == 1
+    assert len(forks[0]["versions"]) == 2
+    # versions are sorted longest-first (line-count proxy for "most complete")
+    assert forks[0]["versions"][0]["lines"] >= forks[0]["versions"][1]["lines"]
+
+
+def test_dedup_crlf_copies_count_as_identical(tmp_path):
+    # Without normalization these hash differently and dedup would miss them.
+    (tmp_path / "unix.txt").write_bytes(b"one\ntwo\n")
+    (tmp_path / "dos.txt").write_bytes(b"one\r\ntwo\r\n")
+    res = dedup_scan(tmp_path)
+    assert len(res["duplicate_groups"]) == 1
+    assert len(res["duplicate_groups"][0]["paths"]) == 2
+
+
+def test_dedup_ext_filter(tmp_path):
+    (tmp_path / "keep.md").write_bytes(b"m\n")
+    (tmp_path / "skip.log").write_bytes(b"l\n")
+    res = dedup_scan(tmp_path, _norm_exts(".md"))
+    assert res["n_files"] == 1
+
+
+def test_norm_exts_normalizes():
+    assert _norm_exts(".md,txt") == (".md", ".txt")
+    assert _norm_exts("  MD ") == (".md",)
+    assert _norm_exts(None) is None
+    assert _norm_exts("") is None
+
+
+def _make_repo(path: Path, files: dict[str, bytes]) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    for rel, content in files.items():
+        fp = path / rel
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(content)
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+         "-c", "commit.gpgsign=false", "commit", "-qm", "init"],
+        cwd=path, check=True,
+    )
+    return path
+
+
+def test_locate_redundant(tmp_path):
+    _make_repo(tmp_path / "repo", {"docs/notes.md": b"hello\nworld\n"})
+    folder = tmp_path / "copy"
+    folder.mkdir()
+    (folder / "notes.md").write_bytes(b"hello\nworld\n")
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "REDUNDANT"
+    assert res["stranded"] == []
+
+
+def test_locate_ahead_lists_stranded(tmp_path):
+    _make_repo(tmp_path / "repo", {"notes.md": b"hello\nworld\n"})
+    folder = tmp_path / "work"
+    folder.mkdir()
+    (folder / "notes.md").write_bytes(b"hello\nworld\n")          # already in repo
+    (folder / "brandnew.md").write_bytes(b"unique stranded work\n")  # not anywhere
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "AHEAD"
+    assert "brandnew.md" in res["stranded"]
+    assert "notes.md" not in res["stranded"]
+
+
+def test_locate_orphan(tmp_path):
+    _make_repo(tmp_path / "repo", {"notes.md": b"hello\n"})
+    folder = tmp_path / "loose"
+    folder.mkdir()
+    (folder / "unrelated.md").write_bytes(b"nothing like the repo\n")
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "ORPHAN"
+
+
+def test_locate_crlf_copy_is_redundant(tmp_path):
+    # A CRLF copy of tracked content must still read as REDUNDANT, not AHEAD.
+    _make_repo(tmp_path / "repo", {"notes.md": b"a\nb\nc\n"})
+    folder = tmp_path / "dos"
+    folder.mkdir()
+    (folder / "notes.md").write_bytes(b"a\r\nb\r\nc\r\n")
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "REDUNDANT"
+
+
+def test_locate_empty_folder(tmp_path):
+    _make_repo(tmp_path / "repo", {"notes.md": b"hello\n"})
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    res = locate_scan(folder, [tmp_path])
+    assert res["verdict"] == "EMPTY"

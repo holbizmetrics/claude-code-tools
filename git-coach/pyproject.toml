@@ -1,6 +1,6 @@
 [project]
 name = "git-coach"
-version = "0.1.0"
+version = "0.2.0"
 description = "A deterministic git coach that maps plain-language intents to git commands and shows the command before running it."
 readme = "README.md"
 requires-python = ">=3.11"

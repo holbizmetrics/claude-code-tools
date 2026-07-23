@@ -43,6 +43,27 @@ Type `help` to re-show the banner, `quit` / `exit` to leave. Good for beginners 
 
 You can also type a **real git command directly** (e.g. `git ls-files`) — the coach recognizes it instead of fuzzy-guessing — and prefix any command with **`run `** (e.g. `run git ls-files`) to execute it on the spot. Commands that can rewrite or lose work (`--force`, `reset --hard`, `clean -f`, `rebase`, …) ask for confirmation first.
 
+## Finding lost & duplicate work: `locate` and `dedup`
+
+Two subcommands answer a different question from the rest of the tool — not "what's the git command?" but **"is this folder already in one of my repos, and is it redundant, ahead, or an orphan?"** They need no repo in the current directory and use no fuzzy matching: a file's identity is its **normalized content hash** (CRLF/CR flattened to LF, then SHA-256), so provenance is a set operation, not a search. Git already content-addresses every file it tracks — these commands just ask across a whole collection of repos at once.
+
+```bash
+# Which repo does this detached folder belong to, and what is its relationship?
+git-coach locate ./some-folder --repos ~/code
+#   REDUNDANT  every file is already in your repos -> safe to delete the folder
+#   AHEAD      the folder holds files no repo has  -> stranded work, rescue it
+#   ORPHAN     none of it is in any scanned repo   -> it needs a home
+
+# Which files under here are duplicates, or same-named forks?
+git-coach dedup ./messy-dir --ext .md,.txt
+#   IDENTICAL CONTENT groups  (keep one, delete the rest)
+#   FORKS: same filename, different content  (the "which version is canonical?" case)
+```
+
+`locate` scans the git repos found under `--repos` (default: the folder's parent), fingerprints each repo's **tracked** files by normalized content, and classifies every file in the target folder as already-present, modified (same name, different content), or new. `dedup` groups every file under a root by content hash — a CRLF copy and its LF twin land in the *same* group, which a naïve byte hash would miss.
+
+**Honest bounds.** Identity is whole-file content: a file with a one-character edit reads as a distinct version, and telling a *stale snapshot* from a genuine *fork* past "git-tracked wins, then most-complete" stays a judgment call. `--repos` reads each candidate repo's tracked files, so point it at a collection root, not your entire disk. Born from a real session that answered "is this folder already in a repo?" ~25 times by hand — see the `artifact-provenance-locate` research thread for the design and open questions.
+
 ## Adding pain points
 
 Edit `src/git_coach/painpoints.toml`. Each entry:
@@ -78,4 +99,4 @@ State checks available in `requires`:
 
 ## Status
 
-v0.1.0 — seed database with ~12 pain points covering remotes, status, log, branch, diff, undo, stash, and push. Expand as real pain points appear in actual use.
+v0.2.0 — plain-words coaching over a curated pain-point database (remotes, status, log, branch, diff, undo, stash, push; grows from real misses), plus content-addressed provenance (`locate` / `dedup`) for finding stranded and duplicate work across repos. Expand as real pain points appear in actual use.
