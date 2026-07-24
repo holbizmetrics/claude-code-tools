@@ -1,15 +1,24 @@
 # git-coach
 
-A deterministic git coach. Tells you the exact command for what you're trying to do, always shows it before offering to run it, and filters suggestions by real-time repo state. No LLM, no network, no ambiguity.
+A deterministic git multitool with a coaching mode. No LLM, no network, no nondeterminism — it gives you **answers, not guesses**. Two kinds of help under one command:
+
+- **Coaching mode** — plain-language intent → the exact git command, shown before it runs and filtered by your real-time repo state. The "how do I…" problem, for when you know what you want but not the syntax.
+- **Power commands** — things no single git command exposes, done deterministically. Today: content-addressed provenance (`locate` / `dedup`) — *"is this folder already in one of my repos?"*, *"which of these files are duplicates or forks?"*
+
+(The name is history — it began as a beginner's command-lookup. The coaching mode is still exactly that; the power commands are the part whose usefulness doesn't decay as you get better at git.)
 
 ## What it is
 
-A Python CLI that maps plain-language intents to git commands using a hand-curated pain-point database and fuzzy matching. Every suggestion is:
+Two surfaces sharing one charter — **deterministic, no-LLM, git-native, answers not guesses.**
+
+**Coaching mode** maps plain language to git commands using a hand-curated pain-point database and fuzzy matching. Every coaching suggestion is:
 
 - **The command you could have typed yourself** — learning tool first, automation tool second.
 - **Deterministic** — same input, same output, forever. No model drift, no hallucinated flags.
 - **State-aware** — a suggestion that doesn't apply to your current repo state is filtered out before you see it. `git stash pop` doesn't appear if you have no stashes.
 - **Safety-tiered** — read-only runs silently, worktree/history changes ask for confirmation, destructive actions require a typed confirmation.
+
+**Power commands** (`locate` / `dedup`) answer questions git doesn't expose as a single command — cross-repo provenance and duplication — using content hashing rather than fuzzy matching. See "Finding lost & duplicate work" below. New power commands earn their place by sharing the charter above; anything needing an LLM or a network is out of scope by design.
 
 ## Install
 
@@ -100,4 +109,4 @@ State checks available in `requires`:
 
 ## Status
 
-v0.2.0 — plain-words coaching over a curated pain-point database (remotes, status, log, branch, diff, undo, stash, push; grows from real misses), plus content-addressed provenance (`locate` / `dedup`) for finding stranded and duplicate work across repos. Expand as real pain points appear in actual use.
+v0.2.0 — the release that turned git-coach from a beginner's command-coach into a deterministic git multitool. **Coaching mode:** plain-words lookup over a curated pain-point database (remotes, status, log, branch, diff, undo, stash, push; grows from real misses). **Power commands:** content-addressed provenance (`locate` / `dedup`) for finding stranded and duplicate work across repos. Both grow as real needs appear — coaching from real misses, power commands from tasks git can't answer in one command.

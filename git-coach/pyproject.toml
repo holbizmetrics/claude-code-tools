@@ -1,7 +1,7 @@
 [project]
 name = "git-coach"
 version = "0.2.0"
-description = "A deterministic git coach that maps plain-language intents to git commands and shows the command before running it."
+description = "A deterministic, offline git multitool: a plain-words coaching mode that maps intents to exact git commands, plus content-addressed provenance commands (locate/dedup)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

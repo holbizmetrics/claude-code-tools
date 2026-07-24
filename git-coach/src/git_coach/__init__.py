@@ -1,8 +1,13 @@
-"""git-coach — a deterministic git coach.
+"""git-coach — a deterministic git multitool with a coaching mode.
 
-Maps plain-language intents to the exact git command, always shows the
-manual command before offering to run it, and filters suggestions by
-real-time repo state. No LLM, no network, no ambiguity.
+Two kinds of help, both deterministic and offline:
+  - coaching mode: plain-language intent -> the exact git command, shown before
+    it runs and filtered by real-time repo state (the "how do I ..." problem, for
+    when you know what you want but not the syntax).
+  - power commands: things no single git command exposes -- content-addressed
+    provenance (locate / dedup: which repo is this folder, what is duplicated).
+
+No LLM, no network, no nondeterminism: it gives you answers, not guesses.
 """
 from __future__ import annotations
 
@@ -159,10 +164,11 @@ def run(p: Painpoint) -> int:
 
 
 COACH_BANNER = (
-    "git-coach  -  a deterministic git coach.\n"
+    "git-coach  -  coaching mode (a deterministic git multitool).\n"
     "Type what you want git to do, in plain words; I'll show you the exact command.\n"
     "  examples:  list the files of the repo  |  compare to main  |  undo my last commit\n"
     "  commands:  help  (show this)     quit / exit  (leave)\n"
+    "  also (outside this prompt):  git-coach locate <folder>   git-coach dedup <root>\n"
     "Nothing runs without showing you the command first."
 )
 
@@ -605,7 +611,7 @@ def cmd_locate(rest: list[str], repos_root: Path | None) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="git-coach",
-        description="A deterministic git coach.",
+        description="A deterministic git multitool with a coaching mode.",
     )
     parser.add_argument(
         "query", nargs="*",
