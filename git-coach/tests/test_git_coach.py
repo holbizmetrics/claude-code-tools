@@ -12,14 +12,144 @@ from git_coach import (
     RepoState,
     SAFETY_LABELS,
     dedup_scan,
+    identity_check,
+    load_identities,
     load_painpoints,
     locate_scan,
     normalized_hash,
     rank,
+    scrub_remote,
     _iter_files,
     _norm_exts,
     _repo_fingerprint,
 )
+
+
+# --- identity -------------------------------------------------------------- #
+# Regression corpus for the 2026-07-31 incident: a personal email committed and
+# pushed to an employer remote because the GLOBAL identity was personal and the
+# work clone had no local override.
+
+WORK = "holger.morlok@komaxgroup.com"
+PRIVATE = "48716952+holbizmetrics@users.noreply.github.com"
+
+IDENTITIES_TOML = f"""
+[[identity]]
+label = "work"
+remote_contains = ["code.komaxgroup.com"]
+email = "{WORK}"
+name = "Holger Morlok"
+
+[[identity]]
+label = "personal"
+remote_contains = ["github.com"]
+email = "{PRIVATE}"
+"""
+
+
+def _mk_repo(tmp_path, name, remote, email=None):
+    repo = tmp_path / name
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", remote], cwd=repo, check=True)
+    if email:
+        subprocess.run(["git", "config", "--local", "user.email", email], cwd=repo, check=True)
+    return repo
+
+
+def _rules(tmp_path):
+    p = tmp_path / "identities.toml"
+    p.write_text(IDENTITIES_TOML, encoding="utf-8")
+    return load_identities(p)
+
+
+def test_identity_flags_private_email_on_work_remote(tmp_path):
+    """THE INCIDENT: private email + employer remote must be a MISMATCH."""
+    repo = _mk_repo(tmp_path, "tool", "https://code.komaxgroup.com/ch10/system/tool.git", PRIVATE)
+    res = identity_check(repo, _rules(tmp_path))
+    assert res["verdict"] == "MISMATCH", res
+    assert res["expected"] == WORK
+    assert res["fix"] and "user.email" in res["fix"]
+
+
+def test_identity_accepts_correct_work_email(tmp_path):
+    repo = _mk_repo(tmp_path, "tool", "https://code.komaxgroup.com/ch10/system/tool.git", WORK)
+    assert identity_check(repo, _rules(tmp_path))["verdict"] == "OK"
+
+
+def test_identity_personal_email_on_personal_remote_is_ok(tmp_path):
+    """The rule must not blanket-force the work address: a private repo keeps
+    the private identity. Directory-based rules get exactly this case wrong."""
+    repo = _mk_repo(tmp_path, "empathIQ", "https://github.com/holbizmetrics/empathIQ.git", PRIVATE)
+    assert identity_check(repo, _rules(tmp_path))["verdict"] == "OK"
+
+
+def test_identity_work_email_on_personal_remote_is_flagged(tmp_path):
+    """Leakage in the other direction is a finding too."""
+    repo = _mk_repo(tmp_path, "phone-sbb", "https://github.com/holbizmetrics/phone-sbb.git", WORK)
+    assert identity_check(repo, _rules(tmp_path))["verdict"] == "MISMATCH"
+
+
+def test_identity_keys_on_remote_not_directory(tmp_path):
+    """Two clones in ONE folder, different remotes -> different expected identity.
+    This is why the discriminator cannot be the path."""
+    rules = _rules(tmp_path)
+    work = _mk_repo(tmp_path, "tool", "https://code.komaxgroup.com/ch10/system/tool.git", WORK)
+    personal = _mk_repo(tmp_path, "aether", "https://github.com/holbizmetrics/aether.git", PRIVATE)
+    assert identity_check(work, rules)["verdict"] == "OK"
+    assert identity_check(personal, rules)["verdict"] == "OK"
+    assert work.parent == personal.parent
+
+
+def test_identity_unknown_remote_is_not_a_failure(tmp_path):
+    repo = _mk_repo(tmp_path, "other", "https://gitlab.example.org/x/y.git", PRIVATE)
+    assert identity_check(repo, _rules(tmp_path))["verdict"] == "UNKNOWN-REMOTE"
+
+
+def test_identity_no_remote(tmp_path):
+    repo = tmp_path / "loose"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    assert identity_check(repo, _rules(tmp_path))["verdict"] == "NO-REMOTE"
+
+
+def test_identity_scrubs_credentials_from_remote(tmp_path):
+    """A remote can embed a PAT; it must never reach output."""
+    url = "https://oauth2:glpat-SECRETTOKEN@code.komaxgroup.com/ch10/system/tool.git"
+    assert "glpat-SECRETTOKEN" not in scrub_remote(url)
+    repo = _mk_repo(tmp_path, "tool", url, WORK)
+    res = identity_check(repo, _rules(tmp_path))
+    assert "glpat-SECRETTOKEN" not in str(res)
+
+
+def test_identity_reports_inherited_global_email(tmp_path):
+    """The incident's mechanism: no LOCAL email, so the global one applies."""
+    repo = _mk_repo(tmp_path, "tool", "https://code.komaxgroup.com/ch10/system/tool.git")
+    subprocess.run(["git", "config", "--local", "--unset-all", "user.email"],
+                   cwd=repo, capture_output=True)
+    res = identity_check(repo, _rules(tmp_path))
+    assert res["verdict"] in ("MISMATCH", "NO-EMAIL")
+    if res["verdict"] == "MISMATCH":
+        assert res["inherited"] is True
+
+
+def test_identity_scan_root_that_is_itself_a_repo(tmp_path):
+    """Regression: a container dir that is ALSO a checkout must not swallow the
+    scan of its sibling clones. First live run reported '1 repo, 1 OK' while 46
+    went unexamined -- green over an empty denominator."""
+    from git_coach import _iter_repos
+    root = _mk_repo(tmp_path, "container", "https://github.com/x/container.git", PRIVATE)
+    _mk_repo(root, "work", "https://code.komaxgroup.com/a/b.git", WORK)
+    _mk_repo(root, "personal", "https://github.com/x/p.git", PRIVATE)
+    found = sorted(p.name for p in _iter_repos(root))
+    assert found == ["container", "personal", "work"], found
+
+
+def test_identity_rules_require_email(tmp_path):
+    bad = tmp_path / "bad.toml"
+    bad.write_text('[[identity]]\nlabel = "x"\nremote_contains = ["h"]\n', encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_identities(bad)
 
 
 # --- load -----------------------------------------------------------------

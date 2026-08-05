@@ -520,6 +520,214 @@ def locate_scan(folder: Path, repo_roots: list[Path]) -> dict:
             "verdict": verdict, "files": classified, "stranded": stranded}
 
 
+# --- identity: right author on the right remote ---------------------------- #
+#
+# Origin (a real incident, 2026-07-31): a personal email was committed and pushed
+# to an employer's GitLab. Root cause was not carelessness in the moment -- the
+# GLOBAL git identity was personal and no work clone overrode it, so every commit
+# in a work repo without a local user.email silently carried the private address.
+# It had been leaking that way since 2022 across 69 work clones.
+#
+# The discriminator is the REMOTE HOST, never the directory: a single folder can
+# hold both personal and employer clones side by side, so any path-based rule
+# (including git's own includeIf gitdir:) stamps the wrong identity on half of
+# them. Match the URL you push TO, not the disk you sit on.
+
+IDENTITY_VERDICTS = ("OK", "MISMATCH", "UNKNOWN-REMOTE", "NO-REMOTE", "NO-EMAIL")
+
+
+@dataclass(frozen=True)
+class IdentityRule:
+    label: str
+    remote_contains: tuple[str, ...]
+    email: str
+    name: str | None
+
+
+def _identities_path(explicit: Path | None = None) -> Path | None:
+    """First existing of: --identities, $GIT_COACH_IDENTITIES, XDG config, dotfile."""
+    if explicit is not None:
+        return explicit.expanduser()
+    env = os.environ.get("GIT_COACH_IDENTITIES")
+    candidates = [Path(env).expanduser()] if env else []
+    candidates += [
+        Path.home() / ".config" / "git-coach" / "identities.toml",
+        Path.home() / ".git-coach-identities.toml",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def load_identities(path: Path) -> list[IdentityRule]:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    rules: list[IdentityRule] = []
+    for i in data.get("identity", []):
+        if not i.get("remote_contains"):
+            raise ValueError(f"identity {i.get('label', '?')!r}: remote_contains is required")
+        if not i.get("email"):
+            raise ValueError(f"identity {i.get('label', '?')!r}: email is required")
+        rules.append(
+            IdentityRule(
+                label=i.get("label", i["email"]),
+                remote_contains=tuple(i["remote_contains"]),
+                email=i["email"],
+                name=i.get("name"),
+            )
+        )
+    return rules
+
+
+def scrub_remote(url: str) -> str:
+    """Strip embedded credentials. Remote URLs routinely carry a PAT
+    (https://oauth2:glpat-...@host/...); it must never reach stdout or a log."""
+    import re as _re
+    return _re.sub(r"//[^/@]*@", "//", url)
+
+
+def _repo_git(repo: Path, *args: str) -> tuple[int, str]:
+    r = subprocess.run(
+        ["git", "-c", "safe.directory=*", "-C", str(repo), *args],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    return r.returncode, (r.stdout or "").strip()
+
+
+def identity_check(repo: Path, rules: list[IdentityRule]) -> dict:
+    """Deterministic verdict for one repo. No network, no writes."""
+    rc, url = _repo_git(repo, "remote", "get-url", "origin")
+    if rc != 0 or not url:
+        return {"repo": str(repo), "verdict": "NO-REMOTE", "remote": None,
+                "email": None, "expected": None, "rule": None, "fix": None}
+    url = scrub_remote(url)
+    _, email = _repo_git(repo, "config", "user.email")
+    _, local_email = _repo_git(repo, "config", "--local", "user.email")
+
+    rule = next((r for r in rules if any(s in url for s in r.remote_contains)), None)
+    if rule is None:
+        return {"repo": str(repo), "verdict": "UNKNOWN-REMOTE", "remote": url,
+                "email": email or None, "expected": None, "rule": None, "fix": None}
+    if not email:
+        verdict = "NO-EMAIL"
+    elif email.lower() == rule.email.lower():
+        verdict = "OK"
+    else:
+        verdict = "MISMATCH"
+    fix = None
+    if verdict != "OK":
+        fix = f'git -C "{repo}" config --local user.email "{rule.email}"'
+        if rule.name:
+            fix += f' && git -C "{repo}" config --local user.name "{rule.name}"'
+    return {"repo": str(repo), "verdict": verdict, "remote": url, "email": email or None,
+            "expected": rule.email, "rule": rule.label, "fix": fix,
+            "inherited": bool(email and not local_email)}
+
+
+def _iter_repos(root: Path, max_depth: int = 3):
+    """Every repo at or below root. A repo prunes the walk BELOW it -- except at
+    the root itself: a container directory can be a checkout AND hold dozens of
+    sibling clones (C:\\FromGithubEtc is exactly that). Pruning at the root
+    reported '1 repo, 1 OK' while 46 went unexamined -- a green over an empty
+    denominator, caught on the first live run."""
+    root = root.resolve()
+    for dirpath, dirnames, _ in os.walk(root):
+        d = Path(dirpath)
+        depth = len(d.relative_to(root).parts)
+        if (d / ".git").exists():
+            yield d
+            if depth > 0:
+                dirnames[:] = []      # nested repo: do not descend further
+                continue
+        if depth >= max_depth:
+            dirnames[:] = []
+
+
+def cmd_identity(rest: list[str], ident_path: Path | None, do_fix: bool, strict: bool) -> int:
+    path = _identities_path(ident_path)
+    if path is None:
+        print("git-coach identity: no identities file found.\n", file=sys.stderr)
+        print("Create ~/.config/git-coach/identities.toml, for example:\n", file=sys.stderr)
+        print('  [[identity]]\n'
+              '  label = "work"\n'
+              '  remote_contains = ["gitlab.example.com"]\n'
+              '  email = "you@example.com"\n'
+              '  name = "Your Name"\n\n'
+              '  [[identity]]\n'
+              '  label = "personal"\n'
+              '  remote_contains = ["github.com"]\n'
+              '  email = "you@personal.tld"\n', file=sys.stderr)
+        return 2
+    try:
+        rules = load_identities(path)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        print(f"git-coach identity: cannot load {path}: {e}", file=sys.stderr)
+        return 2
+
+    target = Path(rest[0]).expanduser() if rest else Path.cwd()
+    if not target.is_dir():
+        print(f"Not a directory: {target}", file=sys.stderr)
+        return 2
+
+    repos = sorted(_iter_repos(target))
+    if not repos:
+        print(f"No git repository at or below {target}", file=sys.stderr)
+        return 2
+    scan = len(repos) > 1
+
+    print(f"\nIDENTITY  rules: {path}")
+    print(f"          {'scanned ' + str(len(repos)) + ' repo(s) at/under ' if scan else 'repo: '}{target}\n")
+
+    counts = {v: 0 for v in IDENTITY_VERDICTS}
+    problems: list[dict] = []
+    for repo in repos:
+        res = identity_check(repo, rules)
+        counts[res["verdict"]] += 1
+        if res["verdict"] in ("MISMATCH", "NO-EMAIL"):
+            problems.append(res)
+        if not scan or res["verdict"] != "OK":
+            mark = {"OK": "ok  ", "MISMATCH": "FAIL", "UNKNOWN-REMOTE": "?   ",
+                    "NO-REMOTE": "--  ", "NO-EMAIL": "FAIL"}[res["verdict"]]
+            name = repo.name if scan else str(repo)
+            print(f"  [{mark}] {name}")
+            if res["remote"]:
+                print(f"         remote : {res['remote']}")
+            if res["verdict"] == "MISMATCH":
+                src = " (inherited from global config)" if res.get("inherited") else ""
+                print(f"         author : {res['email']}{src}")
+                print(f"         expected: {res['expected']}   [rule: {res['rule']}]")
+            elif res["verdict"] == "NO-EMAIL":
+                print("         author : <none configured>")
+                print(f"         expected: {res['expected']}   [rule: {res['rule']}]")
+            elif res["verdict"] == "UNKNOWN-REMOTE":
+                print("         no rule matches this remote (add one, or ignore)")
+
+    print()
+    summary = ", ".join(f"{counts[v]} {v}" for v in IDENTITY_VERDICTS if counts[v])
+    print(f"  {len(repos)} repo(s): {summary or 'nothing to report'}")
+
+    if problems and do_fix:
+        print("\n  --fix: setting the local identity on each failing repo")
+        for p in problems:
+            rule = next(r for r in rules if r.label == p["rule"])
+            repo = Path(p["repo"])
+            _repo_git(repo, "config", "--local", "user.email", rule.email)
+            if rule.name:
+                _repo_git(repo, "config", "--local", "user.name", rule.name)
+            print(f"    set {rule.email} on {repo.name}")
+        print("\n  re-run without --fix to verify.")
+    elif problems:
+        print("\n  To fix, run (or re-run with --fix):")
+        for p in problems:
+            print(f"    {p['fix']}")
+
+    if problems:
+        return 1
+    if strict and counts["UNKNOWN-REMOTE"]:
+        return 1
+    return 0
+
+
 def cmd_dedup(rest: list[str], exts: tuple[str, ...] | None) -> int:
     if not rest:
         print("usage: git-coach dedup <root> [--ext .md,.txt]", file=sys.stderr)
@@ -623,6 +831,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="locate: root to search for candidate repos (default: the folder's parent)")
     parser.add_argument("--ext", type=str, default=None,
                         help="dedup: comma-separated extensions to limit the scan, e.g. .md,.txt")
+    parser.add_argument("--identities", type=Path, default=None,
+                        help="identity: path to identities.toml (default: ~/.config/git-coach/identities.toml)")
+    parser.add_argument("--fix", action="store_true",
+                        help="identity: set the correct local user.email/name on failing repos")
+    parser.add_argument("--strict", action="store_true",
+                        help="identity: also fail when a remote matches no rule")
     parser.add_argument("--version", action="version", version=f"git-coach {__version__}")
     args = parser.parse_args(argv)
 
@@ -632,6 +846,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_dedup(args.query[1:], _norm_exts(args.ext))
     if args.query and args.query[0] == "locate":
         return cmd_locate(args.query[1:], args.repos)
+    if args.query and args.query[0] == "identity":
+        return cmd_identity(args.query[1:], args.identities, args.fix, args.strict)
 
     try:
         painpoints = load_painpoints(args.file)
